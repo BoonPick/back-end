@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contents</title>
+    <style>
+        body { font-family: sans-serif; padding: 24px; }
+        h1 { margin-bottom: 16px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; vertical-align: top; }
+        th { background: #f4f4f4; white-space: nowrap; }
+        tr:hover { background: #fafafa; }
+        .url-link { color: #1a73e8; text-decoration: none; }
+        .url-link:hover { text-decoration: underline; }
+        #status { margin-bottom: 12px; color: #555; }
+    </style>
+</head>
+<body>
+    <h1>Contents 목록</h1>
+    <div id="status">불러오는 중...</div>
+    <table id="contents-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>제목</th>
+                <th>출처</th>
+                <th>카테고리</th>
+                <th>URL</th>
+                <th>생성일</th>
+            </tr>
+        </thead>
+        <tbody id="contents-body"></tbody>
+    </table>
+    <script>
+        async function fetchContents() {
+            try {
+                const response = await fetch('/contents');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const contents = await response.json();
+                const tbody = document.getElementById('contents-body');
+                tbody.innerHTML = '';
+                contents.forEach(item => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${item.id}</td>
+                        <td>${item.title}</td>
+                        <td>${item.source_name ?? '-'}</td>
+                        <td>${item.category ?? '-'}</td>
+                        <td>${item.url ? `<a class="url-link" href="${item.url}" target="_blank">링크</a>` : '-'}</td>
+                        <td>${item.created_at ? item.created_at.replace('T', ' ').substring(0, 19) : '-'}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+                document.getElementById('status').textContent = `총 ${contents.length}건`;
+            } catch (e) {
+                document.getElementById('status').textContent = `오류: ${e.message}`;
+            }
+        }
+
+        fetchContents();
+    </script>
+</body>
+</html>
