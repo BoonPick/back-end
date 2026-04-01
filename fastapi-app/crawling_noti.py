@@ -6,7 +6,7 @@ from pdfviewer import find_pdf_urls, download_pdf, extract_pdf_text
 
 
 BASE_URL = "https://www.sogang.ac.kr"
-SCHOLARSHIP_URL = "https://www.sogang.ac.kr/ko/scholarship-notice"
+SCHOLARSHIP_URL = "https://www.sogang.ac.kr"
 
 # 크롤링할 게시판 설정
 # bbs_config_fk: API 파라미터, page_url: 공지 상세 페이지 URL 기준 (중복 체크용)
@@ -14,11 +14,13 @@ BOARDS = [
     {
         "source_name": "sogang_notice",
         "bbs_config_fk": 2,
+        "page_size": 15,
         "page_url": f"{BASE_URL}/ko/notice",
     },
     {
         "source_name": "sogang_scholarship",
-        "bbs_config_fk": 19,  # TODO: 실제 bbsConfigFk 값 확인 필요 (https://www.sogang.ac.kr/ko/scholarship-notice)
+        "bbs_config_fk": 141,
+        "page_size": 16,
         "page_url": SCHOLARSHIP_URL,
     },
 ]
@@ -85,13 +87,14 @@ def crawl_notices(page_count: int = 1):
             source_name = board["source_name"]
             bbs_config_fk = board["bbs_config_fk"]
             page_url = board["page_url"]
+            page_size = board["page_size"]
 
             print(f"\n[{source_name}] 크롤링 시작 ({page_count}페이지)")
 
             for page in range(1, page_count + 1):
                 list_url = (
                     f"{BASE_URL}/api/api/v1/mainKo/BbsData/boardList"
-                    f"?pageNum={page}&pageSize=15&bbsConfigFk={bbs_config_fk}"
+                    f"?pageNum={page}&pageSize={page_size}&bbsConfigFk={bbs_config_fk}"
                     "&category&introPkId&title&content&username"
                 )
                 response = requests.get(list_url)
