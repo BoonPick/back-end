@@ -25,10 +25,10 @@ BOARDS = [
 ]
 
 DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "163.239.77.78"),
+    "host": os.getenv("DB_HOST", "localhost"),
     "port": int(os.getenv("DB_PORT", 3306)),
-    "user": os.getenv("DB_USER", "devops"),
-    "password": os.getenv("DB_PASSWORD", "Sogangteam2~!"),
+    "user": os.getenv("DB_USER", "root"),
+    "password": os.getenv("DB_PASSWORD", ""),
     "database": os.getenv("DB_NAME", "boonpick"),
 }
 
