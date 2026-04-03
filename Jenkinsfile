@@ -10,7 +10,12 @@ pipeline {
         // 배포 서버 정보
         TARGET_SERVER = "163.239.77.78" 
         TARGET_USER = "sogang018@SGVDI.local"
-        SSH_CRED_ID = "team" // CICDtest와 동일한 SSH 자격증명 ID
+        SSH_CRED_ID = "team" 
+
+        // DB 접속 정보 자격 증명에서 가져오기
+        DB_HOST = credentials('BOONPICK_DB_HOST')
+        DB_USER = credentials('BOONPICK_DB_USER')
+        DB_PASSWORD = credentials('BOONPICK_DB_PASSWORD')
     }
 
     stages {
@@ -36,13 +41,17 @@ pipeline {
         stage('Deploy to Remote Server') {
             steps {
                 sshagent(["${SSH_CRED_ID}"]) {
-                    // 2. 배포 서버에서 이미지 Pull 및 실행 (백엔드 포트 8000 사용)
+                    // 2. 배포 서버에서 이미지 Pull 및 실행 (백엔드 포트 8000 사용 + 환경변수 주입)
                     sh """
                         ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_SERVER} "
                             docker pull ${IMAGE_NAME}:latest && \\
                             docker stop boonpick-backend-container 2>/dev/null || true && \\
                             docker rm boonpick-backend-container 2>/dev/null || true && \\
-                            docker run -d --name boonpick-backend-container -p 8000:8000 ${IMAGE_NAME}:latest && \\
+                            docker run -d --name boonpick-backend-container -p 8000:8000 \\
+                            -e DB_HOST=${env.DB_HOST} \\
+                            -e DB_USER=${env.DB_USER} \\
+                            -e DB_PASSWORD='${env.DB_PASSWORD}' \\
+                            ${IMAGE_NAME}:latest && \\
                             docker image prune -f
                         "
                     """
