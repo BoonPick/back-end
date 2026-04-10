@@ -13,6 +13,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 앱 코드 전체 복사
 COPY fastapi-app/ .
 
-# 앱 실행 (uvicorn)
-# main.py 내 app 객체를 8000 포트에서 실행
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+RUN chmod +x start.sh
+
+CMD ["bash", "start.sh"]
