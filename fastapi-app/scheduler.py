@@ -36,7 +36,7 @@ if __name__ == "__main__":
     scheduler.add_job(
         job_crawl,
         trigger="cron",
-        hour=6,
+        hour=2,
         minute=0,
         id="daily_crawl",
     )
