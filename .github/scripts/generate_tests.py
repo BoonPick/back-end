@@ -94,6 +94,18 @@ def _make_func_info(node, lines, class_name=None):
     }
 
 
+def get_deleted_functions(filepath):
+    """이번 커밋에서 삭제된 함수 이름 목록"""
+    old_source = get_old_source(filepath)
+    if old_source is None:
+        return []
+    with open(filepath, encoding="utf-8") as f:
+        new_source = f.read()
+    new_names = {f["name"] for f in extract_top_level_functions(new_source)}
+    old_names = {f["name"] for f in extract_top_level_functions(old_source)}
+    return list(old_names - new_names)
+
+
 def get_new_or_changed_functions(filepath):
     """추가되거나 본문이 바뀐 함수만 반환. is_new / old_source 필드 포함."""
     with open(filepath, encoding="utf-8") as f:
@@ -200,6 +212,23 @@ def append_tests(test_file, new_test_code, func_name):
             f.write(separator)
             f.write(new_test_code.rstrip())
             f.write("\n")
+
+
+def remove_auto_generated_section(test_file, func_name):
+    """auto-generated 섹션 삭제 (함수가 소스에서 제거된 경우)"""
+    if not test_file.exists():
+        return
+    content = test_file.read_text(encoding="utf-8")
+    separator_line = SEPARATOR_TEMPLATE.format(name=func_name)
+    if separator_line not in content:
+        return
+    pattern = (
+        rf"\n\n{re.escape(separator_line)}\n"
+        rf".*?"
+        rf"(?=\n\n# ── auto-generated:|\Z)"
+    )
+    new_content = re.sub(pattern, "", content, flags=re.DOTALL)
+    test_file.write_text(new_content, encoding="utf-8")
 
 
 def replace_auto_generated_section(test_file, new_test_code, func_name):
@@ -325,6 +354,7 @@ def main():
 
     generated_count = 0
     updated_count = 0
+    removed_count = 0
 
     for source_file in changed_files:
         print(f"\n파일 분석 중: {source_file}")
@@ -370,7 +400,17 @@ def main():
                 generated_count += 1
                 print(f"  완료 (신규) → {test_file}")
 
-    print(f"\n신규 생성: {generated_count}개 / 업데이트: {updated_count}개")
+        # 삭제된 함수의 auto-generated 섹션 제거
+        deleted_funcs = get_deleted_functions(source_file)
+        for name in deleted_funcs:
+            existing_tests = read_existing_tests(test_file)
+            if has_auto_generated_section(existing_tests, name):
+                print(f"  삭제 중 (함수 제거됨): {name}()")
+                remove_auto_generated_section(test_file, name)
+                removed_count += 1
+                print(f"  완료 (제거) → {test_file}")
+
+    print(f"\n신규 생성: {generated_count}개 / 업데이트: {updated_count}개 / 제거: {removed_count}개")
 
 
 if __name__ == "__main__":
