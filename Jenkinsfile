@@ -1,18 +1,18 @@
 pipeline {
     agent any
-    
+
     environment {
         // Docker Hub 정보
         DOCKER_HUB_USER = "jaeyoungkimdockerhub"
-        IMAGE_NAME = "${DOCKER_HUB_USER}/boonpick-backend" // 백엔드용 이미지 이름
-        DOCKER_HUB_CREDS = "docker-hub-credentials" // CICDtest와 동일한 자격증명 ID
+        IMAGE_NAME = "${DOCKER_HUB_USER}/boonpick-backend"
+        DOCKER_HUB_CREDS = "docker-hub-credentials"
 
         // 배포 서버 정보
-        TARGET_SERVER = "163.239.77.78" 
+        TARGET_SERVER = "163.239.77.78"
         TARGET_USER = "sogang018@SGVDI.local"
-        SSH_CRED_ID = "team" 
+        SSH_CRED_ID = "team"
 
-        // DB 접속 정보 자격 증명에서 가져오기
+        // DB 접속 정보
         DB_HOST = credentials('BOONPICK_DB_HOST')
         DB_USER = credentials('BOONPICK_DB_USER')
         DB_PASSWORD = credentials('BOONPICK_DB_PASSWORD')
@@ -25,10 +25,55 @@ pipeline {
             }
         }
 
+        stage('Setup Environment & Install Dependencies') {
+            steps {
+                sh '''
+                    python3 -m venv venv
+                    . venv/bin/activate
+                    pip install --upgrade pip
+                    pip install -r fastapi-app/requirements.txt
+                '''
+            }
+        }
+
+        stage('Test & Coverage') {
+            steps {
+                sh '''
+                    . venv/bin/activate
+                    mkdir -p pytest_report
+                    pytest fastapi-app/tests \
+                      --html=pytest_report/report.html \
+                      --self-contained-html \
+                      --cov=fastapi-app \
+                      --cov-report=html:htmlcov \
+                      --cov-report=term
+                '''
+            }
+            post {
+                always {
+                    publishHTML(target: [
+                        reportName : 'Pytest HTML Report',
+                        reportDir  : 'pytest_report',
+                        reportFiles: 'report.html',
+                        keepAll    : true,
+                        alwaysLinkToLastBuild: true,
+                        allowMissing: true
+                    ])
+                    publishHTML(target: [
+                        reportName : 'Coverage Report',
+                        reportDir  : 'htmlcov',
+                        reportFiles: 'index.html',
+                        keepAll    : true,
+                        alwaysLinkToLastBuild: true,
+                        allowMissing: true
+                    ])
+                }
+            }
+        }
+
         stage('Build and Push to Docker Hub') {
             steps {
                 script {
-                    // 1. 도커 허브 로그인 및 이미지 빌드/푸시
                     docker.withRegistry('', "${DOCKER_HUB_CREDS}") {
                         def myImage = docker.build("${IMAGE_NAME}:${env.BUILD_NUMBER}")
                         myImage.push()
@@ -41,7 +86,6 @@ pipeline {
         stage('Deploy to Remote Server') {
             steps {
                 sshagent(["${SSH_CRED_ID}"]) {
-                    // 2. 배포 서버에서 이미지 Pull 및 실행 (백엔드 포트 8000 사용 + 환경변수 주입)
                     sh """
                         ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_SERVER} "
                             docker pull ${IMAGE_NAME}:latest && \\
@@ -57,6 +101,12 @@ pipeline {
                     """
                 }
             }
+        }
+    }
+
+    post {
+        always {
+            echo 'Pipeline completed.'
         }
     }
 }

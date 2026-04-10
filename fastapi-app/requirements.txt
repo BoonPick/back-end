@@ -9,4 +9,6 @@ apscheduler
 # 테스트
 pytest
 pytest-mock
+pytest-html
+pytest-cov
 httpx
