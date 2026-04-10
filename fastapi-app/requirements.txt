@@ -5,6 +5,7 @@ requests
 beautifulsoup4
 pdfplumber
 apscheduler
+playwright
 
 # 테스트
 pytest
