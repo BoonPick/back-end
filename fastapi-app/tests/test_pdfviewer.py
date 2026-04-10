@@ -203,7 +203,10 @@ class TestExtractPdfText:
         assert result["pages"][0]["text"] == ""
 
     def test_extracts_tables(self):
-        table_data = [[["헤더1", "헤더2"], ["값1", "값2"]]]
+        # extract_tables()는 [테이블, ...] 반환, 테이블은 [[행, ...]] 구조
+        # pages[0]에 테이블 1개 (2행 2열)
+        one_table = [["헤더1", "헤더2"], ["값1", "값2"]]
+        table_data = [[one_table]]  # pages → tables per page → table
         mock_pdf = self._make_mock_pdf(["텍스트"], tables=table_data)
 
         with patch("pdfviewer.pdfplumber.open", return_value=mock_pdf):
@@ -211,7 +214,7 @@ class TestExtractPdfText:
 
         assert len(result["tables"]) == 1
         assert result["tables"][0]["page"] == 1
-        assert result["tables"][0]["data"] == table_data[0]
+        assert result["tables"][0]["data"] == one_table
 
     def test_returns_empty_tables_when_none(self):
         mock_pdf = self._make_mock_pdf(["텍스트만"])
