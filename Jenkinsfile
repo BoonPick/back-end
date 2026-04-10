@@ -5,7 +5,7 @@ pipeline {
         string(
             name: 'BRANCH',
             defaultValue: '',
-       8 +  description: '수동 실행 시 브랜치 지정. 비워두면 push된 브랜치 자동 감지.'
+            description: '수동 실행 시 브랜치 지정. 비워두면 push된 브랜치 자동 감지.'
         )
     }
 
