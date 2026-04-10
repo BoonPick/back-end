@@ -39,7 +39,7 @@ if __name__ == "__main__":
         job_crawl,
         trigger="cron",
         hour=2,
-        minute=10,
+        minute=15,
         timezone=KST,
         id="daily_crawl",
     )
