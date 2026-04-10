@@ -5,3 +5,8 @@ requests
 beautifulsoup4
 pdfplumber
 apscheduler
+
+# 테스트
+pytest
+pytest-mock
+httpx

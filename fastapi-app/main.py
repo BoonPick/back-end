@@ -1,14 +1,12 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
-from contextlib import asynccontextmanager
 
 from typing import List, Optional
 import os
 from datetime import datetime
 
 import mysql.connector
-from apscheduler.schedulers.background import BackgroundScheduler
 
 from crawling_noti import crawl_notices
 
@@ -25,27 +23,7 @@ def get_db_connection():
     return mysql.connector.connect(**DB_CONFIG)
 
 
-# ── 스케줄러 설정 (매일 오전 6시, 1페이지만) ──────────────────────
-
-scheduler = BackgroundScheduler()
-scheduler.add_job(
-    lambda: crawl_notices(page_count=1),
-    trigger="cron",
-    hour=6,
-    minute=0,
-    id="daily_crawl",
-)
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    scheduler.start()
-    print("스케줄러 시작 (매일 오전 6시 크롤링)")
-    yield
-    scheduler.shutdown()
-    print("스케줄러 종료")
-
-
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 
 @app.get("/")
 def read_index():
