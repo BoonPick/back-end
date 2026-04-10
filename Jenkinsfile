@@ -4,8 +4,8 @@ pipeline {
     parameters {
         string(
             name: 'BRANCH',
-            defaultValue: 'main',
-            description: '배포할 브랜치 이름 (예: main, dev, feature/xxx)'
+            defaultValue: '',
+       8 +  description: '수동 실행 시 브랜치 지정. 비워두면 push된 브랜치 자동 감지.'
         )
     }
 
