@@ -10,8 +10,8 @@ pipeline {
     }
 
     environment {
-        DOCKER_HUB_USER = "jaeyoungkimdockerhub"
-        IMAGE_NAME      = "${DOCKER_HUB_USER}/boonpick-backend"
+        DOCKER_HUB_USER  = "jaeyoungkimdockerhub"
+        IMAGE_NAME       = "${DOCKER_HUB_USER}/boonpick-backend"
         DOCKER_HUB_CREDS = "docker-hub-credentials"
 
         TARGET_SERVER = "163.239.77.78"
@@ -21,20 +21,27 @@ pipeline {
         DB_HOST     = credentials('BOONPICK_DB_HOST')
         DB_USER     = credentials('BOONPICK_DB_USER')
         DB_PASSWORD = credentials('BOONPICK_DB_PASSWORD')
-
-        // 브랜치별 고유 이미지 태그
-        IMAGE_TAG = "${params.BRANCH.replaceAll('/', '-')}-${env.BUILD_NUMBER}"
     }
 
     stages {
         stage('Checkout') {
             steps {
+                script {
+                    // 파라미터가 있으면 사용, 없으면 webhook이 감지한 브랜치, 그것도 없으면 main
+                    def branch = params.BRANCH?.trim()
+                    if (!branch) {
+                        branch = env.GIT_BRANCH?.replaceAll('origin/', '')?.trim() ?: 'main'
+                    }
+                    env.DEPLOY_BRANCH = branch
+                    env.IMAGE_TAG = "${branch.replaceAll('/', '-')}-${env.BUILD_NUMBER}"
+                }
+
                 checkout([
                     $class: 'GitSCM',
-                    branches: [[name: "*/${params.BRANCH}"]],
+                    branches: [[name: "*/${env.DEPLOY_BRANCH}"]],
                     userRemoteConfigs: scm.userRemoteConfigs
                 ])
-                echo "브랜치: ${params.BRANCH}"
+                echo "배포 브랜치: ${env.DEPLOY_BRANCH}"
             }
         }
 
@@ -89,11 +96,11 @@ pipeline {
             steps {
                 script {
                     docker.withRegistry('', "${DOCKER_HUB_CREDS}") {
-                        def myImage = docker.build("${IMAGE_NAME}:${IMAGE_TAG}")
+                        def myImage = docker.build("${IMAGE_NAME}:${env.IMAGE_TAG}")
                         myImage.push()
 
                         // main 브랜치만 latest 태그 갱신
-                        if (params.BRANCH == 'main') {
+                        if (env.DEPLOY_BRANCH == 'main') {
                             myImage.push('latest')
                         }
                     }
@@ -104,26 +111,25 @@ pipeline {
         stage('Deploy to Remote Server') {
             steps {
                 script {
-                    // 브랜치별 컨테이너 이름 / 포트 분리
-                    def safeBranch    = params.BRANCH.replaceAll('/', '-')
-                    def containerName = params.BRANCH == 'main'
+                    def safeBranch    = env.DEPLOY_BRANCH.replaceAll('/', '-')
+                    def containerName = env.DEPLOY_BRANCH == 'main'
                         ? 'boonpick-backend-container'
                         : "boonpick-backend-${safeBranch}-container"
-                    def hostPort = params.BRANCH == 'main' ? '8000' : '8001'
+                    def hostPort = env.DEPLOY_BRANCH == 'main' ? '8000' : '8001'
 
                     echo "컨테이너: ${containerName}  포트: ${hostPort}"
 
                     sshagent(["${SSH_CRED_ID}"]) {
                         sh """
                             ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_SERVER} "
-                                docker pull ${IMAGE_NAME}:${IMAGE_TAG} && \\
+                                docker pull ${IMAGE_NAME}:${env.IMAGE_TAG} && \\
                                 docker stop ${containerName} 2>/dev/null || true && \\
                                 docker rm   ${containerName} 2>/dev/null || true && \\
                                 docker run -d --name ${containerName} -p ${hostPort}:8000 \\
                                     -e DB_HOST=${env.DB_HOST} \\
                                     -e DB_USER=${env.DB_USER} \\
                                     -e DB_PASSWORD='${env.DB_PASSWORD}' \\
-                                    ${IMAGE_NAME}:${IMAGE_TAG} && \\
+                                    ${IMAGE_NAME}:${env.IMAGE_TAG} && \\
                                 docker image prune -f
                             "
                         """
@@ -135,7 +141,7 @@ pipeline {
 
     post {
         always {
-            echo "Pipeline 완료 — 브랜치: ${params.BRANCH}"
+            echo "Pipeline 완료 — 브랜치: ${env.DEPLOY_BRANCH}"
         }
     }
 }

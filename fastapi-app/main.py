@@ -72,5 +72,5 @@ def get_contents():
         conn.close()
 
 #테스트
-def hello():
-    return "hello2"
+def hello3():
+    return "hello3"
