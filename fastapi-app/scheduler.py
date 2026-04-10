@@ -8,11 +8,13 @@
     @reboot cd /app && python scheduler.py >> /var/log/scheduler.log 2>&1 &
 """
 
-import time
 import logging
+from zoneinfo import ZoneInfo
 from apscheduler.schedulers.blocking import BlockingScheduler
 
 from crawling_noti import crawl_notices
+
+KST = ZoneInfo("Asia/Seoul")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,11 +39,12 @@ if __name__ == "__main__":
         job_crawl,
         trigger="cron",
         hour=2,
-        minute=0,
+        minute=5,
+        timezone=KST,
         id="daily_crawl",
     )
 
-    logger.info("스케줄러 시작 — 매일 오전 6시 크롤링")
+    logger.info("스케줄러 시작 — 매일 오전 2시 크롤링")
     try:
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):

@@ -41,12 +41,14 @@ pipeline {
                 sh '''
                     . venv/bin/activate
                     mkdir -p pytest_report
-                    pytest fastapi-app/tests \
-                      --html=pytest_report/report.html \
+                    cd fastapi-app
+                    pytest tests \
+                      --html=../pytest_report/report.html \
                       --self-contained-html \
-                      --cov=fastapi-app \
-                      --cov-report=html:htmlcov \
-                      --cov-report=term
+                      --cov=. \
+                      --cov-report=html:../htmlcov \
+                      --cov-report=term \
+                      --cov-omit=tests/*
                 '''
             }
             post {
