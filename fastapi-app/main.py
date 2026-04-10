@@ -73,4 +73,4 @@ def get_contents():
 
 #테스트
 def hello():
-    return "hello"
+    return "hello2"
