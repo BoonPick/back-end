@@ -1,0 +1,45 @@
+name: Auto Generate Tests
+
+on:
+  push:
+    branches: [main, dev, 'test/**']
+    paths:
+      - 'fastapi-app/**/*.py'
+      - '!fastapi-app/tests/**'
+  workflow_dispatch:   # GitHub UI에서 수동 실행 가능
+
+jobs:
+  generate-tests:
+    runs-on: ubuntu-latest
+    # 봇 커밋으로 인한 무한루프 방지
+    if: github.actor != 'github-actions[bot]'
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2   # 이전 커밋과 비교하기 위해 2개 필요
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install anthropic
+
+      - name: Generate tests with Claude
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python .github/scripts/generate_tests.py
+
+      - name: Commit generated tests
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add fastapi-app/tests/
+          git diff --staged --quiet || \
+            git commit -m "auto: [skip ci] generate tests for new functions" && \
+            git push

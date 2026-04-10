@@ -1,27 +1,40 @@
 pipeline {
     agent any
 
+    parameters {
+        string(
+            name: 'BRANCH',
+            defaultValue: 'main',
+            description: '배포할 브랜치 이름 (예: main, dev, feature/xxx)'
+        )
+    }
+
     environment {
-        // Docker Hub 정보
         DOCKER_HUB_USER = "jaeyoungkimdockerhub"
-        IMAGE_NAME = "${DOCKER_HUB_USER}/boonpick-backend"
+        IMAGE_NAME      = "${DOCKER_HUB_USER}/boonpick-backend"
         DOCKER_HUB_CREDS = "docker-hub-credentials"
 
-        // 배포 서버 정보
         TARGET_SERVER = "163.239.77.78"
-        TARGET_USER = "sogang018@SGVDI.local"
-        SSH_CRED_ID = "team"
+        TARGET_USER   = "sogang018@SGVDI.local"
+        SSH_CRED_ID   = "team"
 
-        // DB 접속 정보
-        DB_HOST = credentials('BOONPICK_DB_HOST')
-        DB_USER = credentials('BOONPICK_DB_USER')
+        DB_HOST     = credentials('BOONPICK_DB_HOST')
+        DB_USER     = credentials('BOONPICK_DB_USER')
         DB_PASSWORD = credentials('BOONPICK_DB_PASSWORD')
+
+        // 브랜치별 고유 이미지 태그
+        IMAGE_TAG = "${params.BRANCH.replaceAll('/', '-')}-${env.BUILD_NUMBER}"
     }
 
     stages {
         stage('Checkout') {
             steps {
-                checkout scm
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: "*/${params.BRANCH}"]],
+                    userRemoteConfigs: scm.userRemoteConfigs
+                ])
+                echo "브랜치: ${params.BRANCH}"
             }
         }
 
@@ -76,9 +89,13 @@ pipeline {
             steps {
                 script {
                     docker.withRegistry('', "${DOCKER_HUB_CREDS}") {
-                        def myImage = docker.build("${IMAGE_NAME}:${env.BUILD_NUMBER}")
+                        def myImage = docker.build("${IMAGE_NAME}:${IMAGE_TAG}")
                         myImage.push()
-                        myImage.push('latest')
+
+                        // main 브랜치만 latest 태그 갱신
+                        if (params.BRANCH == 'main') {
+                            myImage.push('latest')
+                        }
                     }
                 }
             }
@@ -86,20 +103,31 @@ pipeline {
 
         stage('Deploy to Remote Server') {
             steps {
-                sshagent(["${SSH_CRED_ID}"]) {
-                    sh """
-                        ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_SERVER} "
-                            docker pull ${IMAGE_NAME}:latest && \\
-                            docker stop boonpick-backend-container 2>/dev/null || true && \\
-                            docker rm boonpick-backend-container 2>/dev/null || true && \\
-                            docker run -d --name boonpick-backend-container -p 8000:8000 \\
-                            -e DB_HOST=${env.DB_HOST} \\
-                            -e DB_USER=${env.DB_USER} \\
-                            -e DB_PASSWORD='${env.DB_PASSWORD}' \\
-                            ${IMAGE_NAME}:latest && \\
-                            docker image prune -f
-                        "
-                    """
+                script {
+                    // 브랜치별 컨테이너 이름 / 포트 분리
+                    def safeBranch    = params.BRANCH.replaceAll('/', '-')
+                    def containerName = params.BRANCH == 'main'
+                        ? 'boonpick-backend-container'
+                        : "boonpick-backend-${safeBranch}-container"
+                    def hostPort = params.BRANCH == 'main' ? '8000' : '8001'
+
+                    echo "컨테이너: ${containerName}  포트: ${hostPort}"
+
+                    sshagent(["${SSH_CRED_ID}"]) {
+                        sh """
+                            ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_SERVER} "
+                                docker pull ${IMAGE_NAME}:${IMAGE_TAG} && \\
+                                docker stop ${containerName} 2>/dev/null || true && \\
+                                docker rm   ${containerName} 2>/dev/null || true && \\
+                                docker run -d --name ${containerName} -p ${hostPort}:8000 \\
+                                    -e DB_HOST=${env.DB_HOST} \\
+                                    -e DB_USER=${env.DB_USER} \\
+                                    -e DB_PASSWORD='${env.DB_PASSWORD}' \\
+                                    ${IMAGE_NAME}:${IMAGE_TAG} && \\
+                                docker image prune -f
+                            "
+                        """
+                    }
                 }
             }
         }
@@ -107,7 +135,7 @@ pipeline {
 
     post {
         always {
-            echo 'Pipeline completed.'
+            echo "Pipeline 완료 — 브랜치: ${params.BRANCH}"
         }
     }
 }
