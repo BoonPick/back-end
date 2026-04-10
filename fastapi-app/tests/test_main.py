@@ -137,3 +137,33 @@ class TestGetContents:
         mock_conn.close.assert_called_once()
 
 
+
+
+# ── auto-generated: hello ──────────────────────────────────
+class TestHello:
+    def test_hello_returns_correct_string(self):
+        from main import hello
+        result = hello()
+        assert result == "hello3"
+
+    def test_hello_return_type_is_str(self):
+        from main import hello
+        result = hello()
+        assert isinstance(result, str)
+
+    def test_hello_does_not_return_other_values(self):
+        from main import hello
+        result = hello()
+        assert result != "hello"
+        assert result != "hello2"
+        assert result != ""
+        assert result is not None
+
+    def test_hello_is_idempotent(self):
+        from main import hello
+        assert hello() == hello()
+
+    def test_hello_no_leading_or_trailing_whitespace(self):
+        from main import hello
+        result = hello()
+        assert result == result.strip()
