@@ -58,6 +58,7 @@ class Content(BaseModel):
 @app.get("/contents", response_model=List[Content])
 def get_contents():
     conn = get_db_connection()
+    cursor = None
     try:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT * FROM contents ORDER BY id DESC")
@@ -66,5 +67,6 @@ def get_contents():
     except mysql.connector.Error as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        cursor.close()
+        if cursor:
+            cursor.close()
         conn.close()
