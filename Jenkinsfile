@@ -47,8 +47,7 @@ pipeline {
                       --self-contained-html \
                       --cov=. \
                       --cov-report=html:../htmlcov \
-                      --cov-report=term \
-                      --cov-omit=tests/*
+                      --cov-report=term
                 '''
             }
             post {
