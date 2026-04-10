@@ -70,3 +70,7 @@ def get_contents():
         if cursor:
             cursor.close()
         conn.close()
+
+#테스트
+def hello():
+    return "hello"
