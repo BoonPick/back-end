@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 def job_crawl():
     logger.info("크롤링 시작")
     try:
-        saved = crawl_notices(page_count=1)
+        saved = crawl_notices(page_count=2)
         logger.info(f"크롤링 완료 — {saved}건 저장됨")
     except Exception as e:
         logger.error(f"크롤링 오류: {e}")
