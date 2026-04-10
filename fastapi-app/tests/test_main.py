@@ -135,3 +135,35 @@ class TestGetContents:
             client.get("/contents")
 
         mock_conn.close.assert_called_once()
+
+
+# ── auto-generated: hello ──────────────────────────────────
+class TestHello:
+    def test_hello_returns_correct_string(self):
+        from main import hello
+        result = hello()
+        assert result == "hello2"
+
+    def test_hello_return_type_is_str(self):
+        from main import hello
+        result = hello()
+        assert isinstance(result, str)
+
+    def test_hello_does_not_return_none(self):
+        from main import hello
+        result = hello()
+        assert result is not None
+
+    def test_hello_no_leading_or_trailing_whitespace(self):
+        from main import hello
+        result = hello()
+        assert result == result.strip()
+
+    def test_hello_is_not_empty_string(self):
+        from main import hello
+        result = hello()
+        assert len(result) > 0
+
+    def test_hello_called_multiple_times_returns_same_value(self):
+        from main import hello
+        assert hello() == hello()
