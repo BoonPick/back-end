@@ -140,6 +140,28 @@ pipeline {
     }
 
     post {
+        success {
+            emailext (
+                subject: "✅ [Jenkins] 빌드 성공: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """<p>빌드가 성공적으로 완료되었습니다.</p>
+                         <p><b>Job:</b> ${env.JOB_NAME}<br>
+                         <b>Build Number:</b> ${env.BUILD_NUMBER}<br>
+                         <b>URL:</b> <a href="${env.BUILD_URL}">${env.BUILD_URL}</a></p>""",
+                to: 'kjyyoung0305@gmail.com, yooncy0511@gmail.com, lee.moonjeong@gmail.com, wq0212@naver.com',
+                mimeType: 'text/html'
+            )
+        }
+        failure {
+            emailext (
+                subject: "❌ [Jenkins] 빌드 실패: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """<p>빌드 중 에러가 발생했습니다. 로그를 확인해 주세요.</p>
+                         <p><b>Job:</b> ${env.JOB_NAME}<br>
+                         <b>Build Number:</b> ${env.BUILD_NUMBER}<br>
+                         <b>Console Log:</b> <a href="${env.BUILD_URL}console">${env.BUILD_URL}console</a></p>""",
+                to: 'kjyyoung0305@gmail.com, yooncy0511@gmail.com, lee.moonjeong@gmail.com, wq0212@naver.com',
+                mimeType: 'text/html'
+            )
+        }
         always {
             echo "Pipeline 완료 — 브랜치: ${env.DEPLOY_BRANCH}"
         }
