@@ -1237,3 +1237,686 @@ class TestGetRecommendation:
         assert result.matchScore == 0
         assert "키워드를 설정하면" in result.matchReason
         mock_conn.close.assert_called_once()
+
+
+# ── auto-generated: admin_get_keywords ──────────────────────────────────
+class TestAdminGetKeywords:
+    def test_returns_keyword_list_successfully(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [
+            {"id": 1, "keyword_name": "AI"},
+            {"id": 2, "keyword_name": "Python"},
+            {"id": 3, "keyword_name": "DevOps"},
+        ]
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_get_keywords
+            result = admin_get_keywords()
+
+        assert result == [
+            {"id": 1, "keyword_name": "AI"},
+            {"id": 2, "keyword_name": "Python"},
+            {"id": 3, "keyword_name": "DevOps"},
+        ]
+        mock_conn.cursor.assert_called_once_with(dictionary=True)
+        mock_cursor.execute.assert_called_once_with("SELECT id, keyword_name FROM keyword ORDER BY id")
+        mock_cursor.fetchall.assert_called_once()
+        mock_cursor.close.assert_called_once()
+        mock_conn.close.assert_called_once()
+
+    def test_returns_empty_list_when_no_keywords(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = []
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_get_keywords
+            result = admin_get_keywords()
+
+        assert result == []
+        mock_cursor.close.assert_called_once()
+        mock_conn.close.assert_called_once()
+
+    def test_returns_single_keyword(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [{"id": 42, "keyword_name": "클라우드"}]
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_get_keywords
+            result = admin_get_keywords()
+
+        assert len(result) == 1
+        assert result[0]["id"] == 42
+        assert result[0]["keyword_name"] == "클라우드"
+
+    def test_conn_close_called_when_execute_raises(self):
+        mock_cursor = MagicMock()
+        mock_cursor.execute.side_effect = Exception("SQL syntax error")
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_get_keywords
+            with pytest.raises(Exception, match="SQL syntax error"):
+                admin_get_keywords()
+
+        mock_conn.close.assert_called_once()
+
+    def test_conn_close_called_when_fetchall_raises(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.side_effect = RuntimeError("fetch failed")
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_get_keywords
+            with pytest.raises(RuntimeError, match="fetch failed"):
+                admin_get_keywords()
+
+        mock_conn.close.assert_called_once()
+
+    def test_conn_close_called_when_cursor_close_raises(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [{"id": 1, "keyword_name": "test"}]
+        mock_cursor.close.side_effect = RuntimeError("cursor close error")
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_get_keywords
+            with pytest.raises(RuntimeError, match="cursor close error"):
+                admin_get_keywords()
+
+        mock_conn.close.assert_called_once()
+
+    def test_get_db_raises_connection_error(self):
+        with patch("main.get_db", side_effect=ConnectionError("DB unreachable")):
+            from main import admin_get_keywords
+            with pytest.raises(ConnectionError, match="DB unreachable"):
+                admin_get_keywords()
+
+    def test_cursor_created_with_dictionary_true(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = []
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_get_keywords
+            admin_get_keywords()
+
+        mock_conn.cursor.assert_called_once_with(dictionary=True)
+
+    def test_returns_many_keywords_preserving_order(self):
+        expected = [{"id": i, "keyword_name": f"kw_{i}"} for i in range(1, 101)]
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = expected
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_get_keywords
+            result = admin_get_keywords()
+
+        assert result == expected
+        assert len(result) == 100
+
+    def test_conn_close_called_when_cursor_creation_raises(self):
+        mock_conn = MagicMock()
+        mock_conn.cursor.side_effect = RuntimeError("cursor creation failed")
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_get_keywords
+            with pytest.raises(RuntimeError, match="cursor creation failed"):
+                admin_get_keywords()
+
+        mock_conn.close.assert_called_once()
+
+
+# ── auto-generated: admin_create_keyword ──────────────────────────────────
+class TestAdminCreateKeyword:
+    def test_create_keyword_success(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None
+        mock_cursor.lastrowid = 1
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_create_keyword, KeywordCreateRequest
+            req = KeywordCreateRequest(keyword_name="새키워드")
+            result = admin_create_keyword(req)
+
+        assert result.id == 1
+        assert result.keyword_name == "새키워드"
+        mock_conn.commit.assert_called_once()
+        mock_cursor.close.assert_called_once()
+        mock_conn.close.assert_called_once()
+
+    def test_create_keyword_duplicate_raises_http_400(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = {"id": 5}
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_create_keyword, KeywordCreateRequest
+            req = KeywordCreateRequest(keyword_name="중복키워드")
+            with pytest.raises(HTTPException) as exc_info:
+                admin_create_keyword(req)
+
+        assert exc_info.value.status_code == 400
+        assert "이미 존재하는 키워드입니다." in str(exc_info.value.detail)
+        mock_conn.close.assert_called_once()
+
+    def test_create_keyword_duplicate_does_not_commit(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = {"id": 3}
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_create_keyword, KeywordCreateRequest
+            req = KeywordCreateRequest(keyword_name="중복")
+            with pytest.raises(HTTPException):
+                admin_create_keyword(req)
+
+        mock_conn.commit.assert_not_called()
+
+    def test_create_keyword_select_query_called_with_keyword_name(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None
+        mock_cursor.lastrowid = 10
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_create_keyword, KeywordCreateRequest
+            req = KeywordCreateRequest(keyword_name="테스트")
+            admin_create_keyword(req)
+
+        calls = mock_cursor.execute.call_args_list
+        assert calls[0] == call(
+            "SELECT id FROM keyword WHERE keyword_name = %s", ("테스트",)
+        )
+
+    def test_create_keyword_insert_query_called_with_keyword_name(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None
+        mock_cursor.lastrowid = 7
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_create_keyword, KeywordCreateRequest
+            req = KeywordCreateRequest(keyword_name="인서트테스트")
+            admin_create_keyword(req)
+
+        calls = mock_cursor.execute.call_args_list
+        assert calls[1] == call(
+            "INSERT INTO keyword (keyword_name) VALUES (%s)", ("인서트테스트",)
+        )
+
+    def test_create_keyword_cursor_created_with_dictionary_true(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None
+        mock_cursor.lastrowid = 1
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_create_keyword, KeywordCreateRequest
+            req = KeywordCreateRequest(keyword_name="dict_test")
+            admin_create_keyword(req)
+
+        mock_conn.cursor.assert_called_once_with(dictionary=True)
+
+    def test_create_keyword_returns_keyword_response_type(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None
+        mock_cursor.lastrowid = 42
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_create_keyword, KeywordCreateRequest, KeywordResponse
+            req = KeywordCreateRequest(keyword_name="타입체크")
+            result = admin_create_keyword(req)
+
+        assert isinstance(result, KeywordResponse)
+        assert result.id == 42
+        assert result.keyword_name == "타입체크"
+
+    def test_conn_close_called_when_select_raises(self):
+        mock_cursor = MagicMock()
+        mock_cursor.execute.side_effect = RuntimeError("SELECT 실패")
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_create_keyword, KeywordCreateRequest
+            req = KeywordCreateRequest(keyword_name="에러")
+            with pytest.raises(RuntimeError, match="SELECT 실패"):
+                admin_create_keyword(req)
+
+        mock_conn.close.assert_called_once()
+
+    def test_conn_close_called_when_insert_raises(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None
+        mock_cursor.execute.side_effect = [None, RuntimeError("INSERT 실패")]
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_create_keyword, KeywordCreateRequest
+            req = KeywordCreateRequest(keyword_name="인서트에러")
+            with pytest.raises(RuntimeError, match="INSERT 실패"):
+                admin_create_keyword(req)
+
+        mock_conn.close.assert_called_once()
+
+    def test_conn_close_called_when_commit_raises(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None
+        mock_cursor.lastrowid = 1
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+        mock_conn.commit.side_effect = RuntimeError("commit failed")
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_create_keyword, KeywordCreateRequest
+            req = KeywordCreateRequest(keyword_name="커밋에러")
+            with pytest.raises(RuntimeError, match="commit failed"):
+                admin_create_keyword(req)
+
+        mock_conn.close.assert_called_once()
+
+    def test_conn_close_called_when_cursor_creation_raises(self):
+        mock_conn = MagicMock()
+        mock_conn.cursor.side_effect = RuntimeError("cursor creation failed")
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_create_keyword, KeywordCreateRequest
+            req = KeywordCreateRequest(keyword_name="커서에러")
+            with pytest.raises(RuntimeError, match="cursor creation failed"):
+                admin_create_keyword(req)
+
+        mock_conn.close.assert_called_once()
+
+    def test_get_db_raises_connection_error(self):
+        with patch("main.get_db", side_effect=ConnectionError("DB unreachable")):
+            from main import admin_create_keyword, KeywordCreateRequest
+            req = KeywordCreateRequest(keyword_name="연결에러")
+            with pytest.raises(ConnectionError, match="DB unreachable"):
+                admin_create_keyword(req)
+
+    def test_create_keyword_with_empty_string_name(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None
+        mock_cursor.lastrowid = 99
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_create_keyword, KeywordCreateRequest
+            req = KeywordCreateRequest(keyword_name="")
+            result = admin_create_keyword(req)
+
+        assert result.id == 99
+        assert result.keyword_name == ""
+
+    def test_create_keyword_with_long_name(self):
+        long_name = "k" * 1000
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None
+        mock_cursor.lastrowid = 55
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_create_keyword, KeywordCreateRequest
+            req = KeywordCreateRequest(keyword_name=long_name)
+            result = admin_create_keyword(req)
+
+        assert result.id == 55
+        assert result.keyword_name == long_name
+
+    def test_create_keyword_with_special_characters(self):
+        special_name = "키워드!@#$%^&*()_+-=[]{}|;':\",./<>?"
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None
+        mock_cursor.lastrowid = 77
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_create_keyword, KeywordCreateRequest
+            req = KeywordCreateRequest(keyword_name=special_name)
+            result = admin_create_keyword(req)
+
+        assert result.keyword_name == special_name
+
+    def test_create_keyword_lastrowid_zero(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None
+        mock_cursor.lastrowid = 0
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_create_keyword, KeywordCreateRequest
+            req = KeywordCreateRequest(keyword_name="제로아이디")
+            result = admin_create_keyword(req)
+
+        assert result.id == 0
+
+    def test_conn_close_called_when_cursor_close_raises(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None
+        mock_cursor.lastrowid = 1
+        mock_cursor.close.side_effect = RuntimeError("cursor close error")
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_create_keyword, KeywordCreateRequest
+            req = KeywordCreateRequest(keyword_name="커서닫기에러")
+            with pytest.raises(RuntimeError, match="cursor close error"):
+                admin_create_keyword(req)
+
+        mock_conn.close.assert_called_once()
+
+    def test_conn_close_called_when_fetchone_raises(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.side_effect = RuntimeError("fetchone failed")
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_create_keyword, KeywordCreateRequest
+            req = KeywordCreateRequest(keyword_name="페치에러")
+            with pytest.raises(RuntimeError, match="fetchone failed"):
+                admin_create_keyword(req)
+
+        mock_conn.close.assert_called_once()
+
+    def test_execute_called_exactly_twice_on_success(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None
+        mock_cursor.lastrowid = 3
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_create_keyword, KeywordCreateRequest
+            req = KeywordCreateRequest(keyword_name="두번호출")
+            admin_create_keyword(req)
+
+        assert mock_cursor.execute.call_count == 2
+
+    def test_execute_called_once_on_duplicate(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = {"id": 1}
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_create_keyword, KeywordCreateRequest
+            req = KeywordCreateRequest(keyword_name="중복한번")
+            with pytest.raises(HTTPException):
+                admin_create_keyword(req)
+
+        assert mock_cursor.execute.call_count == 1
+
+    def test_create_keyword_with_whitespace_name(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None
+        mock_cursor.lastrowid = 88
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_create_keyword, KeywordCreateRequest
+            req = KeywordCreateRequest(keyword_name="   ")
+            result = admin_create_keyword(req)
+
+        assert result.keyword_name == "   "
+        assert result.id == 88
+
+    def test_create_keyword_large_lastrowid(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None
+        mock_cursor.lastrowid = 2**31 - 1
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_create_keyword, KeywordCreateRequest
+            req = KeywordCreateRequest(keyword_name="큰아이디")
+            result = admin_create_keyword(req)
+
+        assert result.id == 2**31 - 1
+
+
+# ── auto-generated: admin_delete_keyword ──────────────────────────────────
+class TestAdminDeleteKeyword:
+    def test_delete_keyword_success(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (1,)
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_delete_keyword
+            result = admin_delete_keyword(1)
+
+        mock_cursor.execute.assert_any_call("SELECT id FROM keyword WHERE id = %s", (1,))
+        mock_cursor.execute.assert_any_call("DELETE FROM keyword WHERE id = %s", (1,))
+        mock_conn.commit.assert_called_once()
+        mock_cursor.close.assert_called_once()
+        mock_conn.close.assert_called_once()
+
+    def test_delete_keyword_not_found_raises_404(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_delete_keyword
+            with pytest.raises(HTTPException) as exc_info:
+                admin_delete_keyword(999)
+
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.detail == "키워드를 찾을 수 없습니다."
+        mock_conn.close.assert_called_once()
+
+    def test_delete_keyword_not_found_no_commit(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_delete_keyword
+            with pytest.raises(HTTPException):
+                admin_delete_keyword(42)
+
+        mock_conn.commit.assert_not_called()
+
+    def test_delete_keyword_not_found_no_delete_execute(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_delete_keyword
+            with pytest.raises(HTTPException):
+                admin_delete_keyword(7)
+
+        assert mock_cursor.execute.call_count == 1
+
+    def test_delete_keyword_execute_called_twice_on_success(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (5,)
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_delete_keyword
+            admin_delete_keyword(5)
+
+        assert mock_cursor.execute.call_count == 2
+
+    def test_delete_keyword_conn_close_called_on_select_error(self):
+        mock_cursor = MagicMock()
+        mock_cursor.execute.side_effect = RuntimeError("select failed")
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_delete_keyword
+            with pytest.raises(RuntimeError, match="select failed"):
+                admin_delete_keyword(1)
+
+        mock_conn.close.assert_called_once()
+
+    def test_delete_keyword_conn_close_called_on_fetchone_error(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.side_effect = RuntimeError("fetchone exploded")
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_delete_keyword
+            with pytest.raises(RuntimeError, match="fetchone exploded"):
+                admin_delete_keyword(1)
+
+        mock_conn.close.assert_called_once()
+
+    def test_delete_keyword_conn_close_called_on_delete_error(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (10,)
+        mock_cursor.execute.side_effect = [None, RuntimeError("delete failed")]
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_delete_keyword
+            with pytest.raises(RuntimeError, match="delete failed"):
+                admin_delete_keyword(10)
+
+        mock_conn.close.assert_called_once()
+
+    def test_delete_keyword_conn_close_called_on_commit_error(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (3,)
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+        mock_conn.commit.side_effect = RuntimeError("commit failed")
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_delete_keyword
+            with pytest.raises(RuntimeError, match="commit failed"):
+                admin_delete_keyword(3)
+
+        mock_conn.close.assert_called_once()
+
+    def test_delete_keyword_conn_close_called_on_cursor_close_error(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (1,)
+        mock_cursor.close.side_effect = RuntimeError("cursor close error")
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_delete_keyword
+            with pytest.raises(RuntimeError, match="cursor close error"):
+                admin_delete_keyword(1)
+
+        mock_conn.close.assert_called_once()
+
+    def test_delete_keyword_with_large_id(self):
+        large_id = 2**31 - 1
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (large_id,)
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_delete_keyword
+            admin_delete_keyword(large_id)
+
+        mock_cursor.execute.assert_any_call("DELETE FROM keyword WHERE id = %s", (large_id,))
+        mock_conn.commit.assert_called_once()
+
+    def test_delete_keyword_with_id_zero(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_delete_keyword
+            with pytest.raises(HTTPException) as exc_info:
+                admin_delete_keyword(0)
+
+        assert exc_info.value.status_code == 404
+
+    def test_delete_keyword_with_negative_id(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_delete_keyword
+            with pytest.raises(HTTPException) as exc_info:
+                admin_delete_keyword(-1)
+
+        assert exc_info.value.status_code == 404
+
+    def test_delete_keyword_return_value_is_none(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (1,)
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_delete_keyword
+            result = admin_delete_keyword(1)
+
+        assert result is None
+
+    def test_delete_keyword_select_query_uses_correct_param(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (77,)
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn):
+            from main import admin_delete_keyword
+            admin_delete_keyword(77)
+
+        calls = mock_cursor.execute.call_args_list
+        assert calls[0] == call("SELECT id FROM keyword WHERE id = %s", (77,))
+        assert calls[1] == call("DELETE FROM keyword WHERE id = %s", (77,))
+
+    def test_delete_keyword_get_db_called_once(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (1,)
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("main.get_db", return_value=mock_conn) as mock_get_db:
+            from main import admin_delete_keyword
+            admin_delete_keyword(1)
+
+        mock_get_db.assert_called_once()
