@@ -1167,8 +1167,9 @@ class TestGetBoardItems:
         mock_conn = MagicMock()
         mock_conn.cursor.return_value = mock_cursor
 
-        with patch("
-
+        with patch("main.get_db", return_value=mock_conn):
+            from main import get_board_items
+            get_board_items(keywords="   ")
 
 # ── auto-generated: get_board_item ──────────────────────────────────
 class TestGetBoardItem:
