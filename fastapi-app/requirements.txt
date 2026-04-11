@@ -5,6 +5,9 @@ requests
 beautifulsoup4
 pdfplumber
 apscheduler
+anthropic
+openai
+python-dotenv
 playwright
 
 # 테스트

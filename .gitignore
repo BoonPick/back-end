@@ -1,0 +1,19 @@
+# Environment variables
+.env
+.env.*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Dependencies
+node_modules/
+yarn.lock
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.sw?
