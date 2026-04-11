@@ -158,7 +158,7 @@ def crawl_notices(page_count: int = 1):
                     raw_content = "\n\n".join(content_parts)
 
                     save_notice(cursor, title, source_name, category,
-                                notice_url, raw_content)
+                                list_url, raw_content)
                     conn.commit()
                     saved_count += 1
                     print(f"  SAVED: [{pkId}] {title}")
