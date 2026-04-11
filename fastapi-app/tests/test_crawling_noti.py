@@ -237,3 +237,171 @@ class TestCrawlNotices:
         ]
         raw_content = insert_calls[0][0][1][4]  # raw_content는 5번째 파라미터
         assert "PDF 페이지 내용" in raw_content
+
+
+# ── auto-generated: crawl_notices ──────────────────────────────────
+# ---------------------------------------------------------------------------
+# Helper utilities (assumed to already exist in the test file)
+# ---------------------------------------------------------------------------
+
+def make_mock_db(fetchone_return=None):
+    mock_cursor = MagicMock()
+    mock_cursor.fetchone.return_value = fetchone_return
+    mock_conn = MagicMock()
+    mock_conn.cursor.return_value = mock_cursor
+    return mock_conn, mock_cursor
+
+
+def mock_requests_get_factory(notices, detail_content="<p>본문 내용</p>"):
+    """Return a side_effect callable for requests.get that serves list + detail."""
+    def _get(url, *args, **kwargs):
+        resp = MagicMock()
+        if "boardList" in url:
+            resp.json.return_value = {"data": {"list": notices}}
+        else:
+            resp.json.return_value = {
+                "data": {"content": detail_content}
+            }
+        return resp
+    return _get
+
+
+# ---------------------------------------------------------------------------
+# NEW TESTS — no overlap with existing test file
+# ---------------------------------------------------------------------------
+
+class TestCrawlNoticesMultiplePages:
+    """page_count > 1 일 때 모든 페이지를 순회하는지 확인."""
+
+    def test_iterates_all_pages(self):
+        mock_conn, mock_cursor = make_mock_db(fetchone_return=None)
+        notice_p1 = {"pkId": 100, "title": "페이지1 공지", "category": ""}
+        notice_p2 = {"pkId": 200, "title": "페이지2 공지", "category": ""}
+
+        call_count = {"n": 0}
+
+        def mock_get(url, *args, **kwargs):
+            resp = MagicMock()
+            if "boardList" in url:
+                call_count["n"] += 1
+                if "pageNum=1" in url:
+                    resp.json.return_value = {"data": {"list": [notice_p1]}}
+                elif "pageNum=2" in url:
+                    resp.json.return_value = {"data": {"list": [notice_p2]}}
+                else:
+                    resp.json.return_value = {"data": {"list": []}}
+            else:
+                resp.json.return_value = {"data": {"content": "<p>내용</p>"}}
+            return resp
+
+        with patch("crawling_noti.get_db_connection", return_value=mock_conn), \
+             patch("crawling_noti.requests.get", side_effect=mock_get), \
+             patch("crawling_noti.find_pdf_urls", return_value=[]), \
+             patch("crawling_noti.BOARDS", [{"source_name": "테스트", "bbs_config_fk": "1",
+                                              "page_url": "http://test", "page_size": 10}]):
+            result = crawl_notices(page_count=2)
+
+        # 두 페이지 모두에서 boardList 호출
+        assert call_count["n"] >= 2
+        assert result == 2
+
+
+class TestCrawlNoticesMultipleBoards:
+    """BOARDS 리스트에 여러 게시판이 있을 때 모두 크롤링."""
+
+    def test_saves_from_each_board(self):
+        mock_conn, mock_cursor = make_mock_db(fetchone_return=None)
+
+        boards = [
+            {"source_name": "게시판A", "bbs_config_fk": "10",
+             "page_url": "http://a", "page_size": 5},
+            {"source_name": "게시판B", "bbs_config_fk": "20",
+             "page_url": "http://b", "page_size": 5},
+        ]
+
+        notice_a = {"pkId": 1, "title": "A 공지", "category": ""}
+        notice_b = {"pkId": 2, "title": "B 공지", "category": ""}
+
+        def mock_get(url, *args, **kwargs):
+            resp = MagicMock()
+            if "boardList" in url:
+                if "bbsConfigFk=10" in url:
+                    resp.json.return_value = {"data": {"list": [notice_a]}}
+                elif "bbsConfigFk=20" in url:
+                    resp.json.return_value = {"data": {"list": [notice_b]}}
+                else:
+                    resp.json.return_value = {"data": {"list": []}}
+            else:
+                resp.json.return_value = {"data": {"content": "<p>내용</p>"}}
+            return resp
+
+        with patch("crawling_noti.get_db_connection", return_value=mock_conn), \
+             patch("crawling_noti.requests.get", side_effect=mock_get), \
+             patch("crawling_noti.find_pdf_urls", return_value=[]), \
+             patch("crawling_noti.BOARDS", boards):
+            result = crawl_notices(page_count=1)
+
+        assert result == 2
+        assert mock_conn.commit.call_count == 2
+
+
+class TestCrawlNoticesNullDataResponse:
+    """응답의 data 키 자체가 None 인 경우 안전하게 건너뜀."""
+
+    def test_data_is_none(self):
+        mock_conn, _ = make_mock_db()
+
+        def mock_get(url, *args, **kwargs):
+            resp = MagicMock()
+            resp.json.return_value = {"data": None}
+            return resp
+
+        with patch("crawling_noti.get_db_connection", return_value=mock_conn), \
+             patch("crawling_noti.requests.get", side_effect=mock_get):
+            result = crawl_notices(page_count=1)
+
+        assert result == 0
+
+    def test_top_level_data_key_missing(self):
+        mock_conn, _ = make_mock_db()
+
+        def mock_get(url, *args, **kwargs):
+            resp = MagicMock()
+            resp.json.return_value = {}
+            return resp
+
+        with patch("crawling_noti.get_db_connection", return_value=mock_conn), \
+             patch("crawling_noti.requests.get", side_effect=mock_get):
+            result = crawl_notices(page_count=1)
+
+        assert result == 0
+
+
+class TestCrawlNoticesPdfErrorHandling:
+    """PDF 다운로드/추출 중 예외 발생 시에도 저장은 진행."""
+
+    def test_pdf_download_failure_still_saves(self):
+        mock_conn, mock_cursor = make_mock_db(fetchone_return=None)
+        notice = {"pkId": 50, "title": "PDF 오류 테스트", "category": "일반"}
+
+        with patch("crawling_noti.get_db_connection", return_value=mock_conn), \
+             patch("crawling_noti.requests.get",
+                   side_effect=mock_requests_get_factory([notice])), \
+             patch("crawling_noti.find_pdf_urls",
+                   return_value=["https://example.com/broken.pdf"]), \
+             patch("crawling_noti.download_pdf",
+                   side_effect=Exception("네트워크 오류")), \
+             patch("os.path.exists", return_value=False):
+            result = crawl_notices(page_count=1)
+
+        assert result >= 1
+        # raw_content에 오류 메시지 포함 확인
+        insert_calls = [
+            c for c in mock_cursor.execute.call_args_list if "INSERT" in str(c)
+        ]
+        raw_content = insert_calls[0][0][1][4]
+        assert "PDF 오류" in raw_content
+        assert "네트워크 오류" in raw_content
+
+    def test_pdf_extract_failure_still_saves(self):
+        mock_conn, mock_cursor = make_
