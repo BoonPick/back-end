@@ -253,9 +253,73 @@ def replace_auto_generated_section(test_file, new_test_code, func_name):
 
 # ── Claude API 호출 ───────────────────────────────────────────────
 
-def extract_code_block(text):
-    match = re.search(r"```(?:python)?\n(.*?)```", text, re.DOTALL)
-    return match.group(1).strip() if match else text.strip()
+def _is_valid_python(code: str) -> bool:
+    try:
+        ast.parse(code)
+        return True
+    except SyntaxError:
+        return False
+
+
+def _strip_markdown_artifacts(code: str) -> str:
+    """코드 앞뒤에 남아있는 마크다운 잔여물 제거."""
+    # 앞쪽 ```python / ``` 제거
+    code = re.sub(r"^```(?:python|py)?\s*\n?", "", code, flags=re.IGNORECASE)
+    # 뒤쪽 ``` 제거
+    code = re.sub(r"\n?```\s*$", "", code)
+    return code.strip()
+
+
+def _strip_leading_prose(code: str) -> str:
+    """Python 코드가 시작되기 전의 설명 줄(한국어 등) 제거."""
+    lines = code.splitlines()
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        # import / class / def / @ / # 으로 시작하거나 빈 줄이면 코드 시작
+        if not stripped:
+            continue
+        if re.match(r"^(import |from |class |def |@|#)", stripped):
+            return "\n".join(lines[i:])
+    return code
+
+
+def extract_code_block(text: str) -> str:
+    """
+    Claude 응답에서 Python 코드 블록을 추출한다.
+
+    시도 순서:
+    1. 가장 긴 ```python...``` 블록 (docstring 내 중첩 backtick 대응: 마지막 ``` 기준)
+    2. 응답 전체에서 마크다운 아티팩트만 제거
+    3. 위 둘 다 파싱 실패 시 앞쪽 설명 줄을 제거하고 재시도
+    """
+    candidates = []
+
+    # 전략 1: ```python ... ``` 블록 전부 수집, 가장 긴 것 우선
+    all_blocks = re.findall(
+        r"```(?:python|py)?\s*\n(.*?)\n```",
+        text,
+        re.DOTALL | re.IGNORECASE,
+    )
+    if all_blocks:
+        candidates.append(max(all_blocks, key=len).strip())
+
+    # 전략 2: 전체 텍스트에서 마크다운 아티팩트 제거
+    candidates.append(_strip_markdown_artifacts(text))
+
+    # 전략 3: 원본 그대로
+    candidates.append(text.strip())
+
+    # 파싱 가능한 첫 번째 후보 반환
+    for code in candidates:
+        if _is_valid_python(code):
+            return code
+        # 앞쪽 설명 줄 제거 후 재시도
+        cleaned = _strip_leading_prose(code)
+        if cleaned != code and _is_valid_python(cleaned):
+            return cleaned
+
+    # 모두 실패 → 가장 긴 후보 반환 (최선)
+    return max(candidates, key=len)
 
 
 def call_claude_create(func_info, module_imports, existing_tests, source_filename):
@@ -383,6 +447,9 @@ def main():
                 existing_section = extract_auto_generated_section(existing_tests, name)
                 response = call_claude_update(func, module_imports, existing_section, source_file.name)
                 test_code = extract_code_block(response)
+                if not _is_valid_python(test_code):
+                    print(f"  WARN: {name}() 테스트 코드 파싱 실패, 건너뜀")
+                    continue
                 replace_auto_generated_section(test_file, test_code, name)
                 updated_count += 1
                 print(f"  완료 (교체) → {test_file}")
@@ -396,6 +463,9 @@ def main():
                 print(f"  생성 중: {name}()")
                 response = call_claude_create(func, module_imports, existing_tests, source_file.name)
                 test_code = extract_code_block(response)
+                if not _is_valid_python(test_code):
+                    print(f"  WARN: {name}() 테스트 코드 파싱 실패, 건너뜀")
+                    continue
                 append_tests(test_file, test_code, name)
                 generated_count += 1
                 print(f"  완료 (신규) → {test_file}")
