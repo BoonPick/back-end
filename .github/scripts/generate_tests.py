@@ -363,9 +363,11 @@ def call_claude_create(func_info, module_imports, existing_tests, source_filenam
 
     message = client.messages.create(
         model="claude-opus-4-6",
-        max_tokens=2048,
+        max_tokens=8192,
         messages=[{"role": "user", "content": prompt}],
     )
+    if message.stop_reason == "max_tokens":
+        raise RuntimeError(f"{func_info['name']}() 테스트 생성 중 토큰 한도 초과 — 응답이 잘렸습니다.")
     return message.content[0].text
 
 
@@ -402,9 +404,11 @@ def call_claude_update(func_info, module_imports, existing_section, source_filen
 
     message = client.messages.create(
         model="claude-opus-4-6",
-        max_tokens=2048,
+        max_tokens=8192,
         messages=[{"role": "user", "content": prompt}],
     )
+    if message.stop_reason == "max_tokens":
+        raise RuntimeError(f"{func_info['name']}() 테스트 업데이트 중 토큰 한도 초과 — 응답이 잘렸습니다.")
     return message.content[0].text
 
 
@@ -445,7 +449,11 @@ def main():
                 # 수정된 함수 + auto-generated 테스트 존재 → 교체
                 print(f"  업데이트 중: {name}()")
                 existing_section = extract_auto_generated_section(existing_tests, name)
-                response = call_claude_update(func, module_imports, existing_section, source_file.name)
+                try:
+                    response = call_claude_update(func, module_imports, existing_section, source_file.name)
+                except RuntimeError as e:
+                    print(f"  WARN: {e}, 건너뜀")
+                    continue
                 test_code = extract_code_block(response)
                 if not _is_valid_python(test_code):
                     print(f"  WARN: {name}() 테스트 코드 파싱 실패, 건너뜀")
@@ -461,7 +469,11 @@ def main():
             else:
                 # 테스트 없음 → 새로 생성
                 print(f"  생성 중: {name}()")
-                response = call_claude_create(func, module_imports, existing_tests, source_file.name)
+                try:
+                    response = call_claude_create(func, module_imports, existing_tests, source_file.name)
+                except RuntimeError as e:
+                    print(f"  WARN: {e}, 건너뜀")
+                    continue
                 test_code = extract_code_block(response)
                 if not _is_valid_python(test_code):
                     print(f"  WARN: {name}() 테스트 코드 파싱 실패, 건너뜀")
