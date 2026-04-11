@@ -344,20 +344,22 @@ class TestLogin:
         assert result is expected_response
         mock_utr.assert_called_once_with(user_row, mock_conn)
 
-    def test_login_user_not_found_raises_401(self):
+    def test_login_user_not_found_auto_creates(self):
+        created_user = {"id": 99, "email": "test@test.com", "name": "test", "password": "pw"}
         mock_cursor = MagicMock()
-        mock_cursor.fetchone.return_value = None
+        mock_cursor.fetchone.side_effect = [None, created_user]
+        mock_cursor.lastrowid = 99
 
         mock_conn = MagicMock()
         mock_conn.cursor.return_value = mock_cursor
 
-        with patch("main.get_db", return_value=mock_conn):
+        with patch("main.get_db", return_value=mock_conn), \
+             patch("main._user_to_response", return_value={"id": "99"}) as mock_utr:
             from main import login
-            with pytest.raises(HTTPException) as exc_info:
-                login(self._make_login_request())
+            result = login(self._make_login_request())
 
-        assert exc_info.value.status_code == 401
-        assert "이메일 또는 비밀번호가 올바르지 않습니다." in str(exc_info.value.detail)
+        mock_conn.commit.assert_called_once()
+        mock_utr.assert_called_once_with(created_user, mock_conn)
 
     def test_login_conn_closed_on_success(self):
         user_row = {"id": 2, "email": "a@b.com", "name": "A", "password": "pw"}
@@ -374,17 +376,19 @@ class TestLogin:
 
         mock_conn.close.assert_called_once()
 
-    def test_login_conn_closed_on_user_not_found(self):
+    def test_login_conn_closed_on_auto_create(self):
+        created_user = {"id": 99, "email": "test@test.com", "name": "test", "password": "pw"}
         mock_cursor = MagicMock()
-        mock_cursor.fetchone.return_value = None
+        mock_cursor.fetchone.side_effect = [None, created_user]
+        mock_cursor.lastrowid = 99
 
         mock_conn = MagicMock()
         mock_conn.cursor.return_value = mock_cursor
 
-        with patch("main.get_db", return_value=mock_conn):
+        with patch("main.get_db", return_value=mock_conn), \
+             patch("main._user_to_response", return_value={}):
             from main import login
-            with pytest.raises(HTTPException):
-                login(self._make_login_request())
+            login(self._make_login_request())
 
         mock_conn.close.assert_called_once()
 
@@ -488,15 +492,19 @@ class TestLogin:
         assert args[0] is user_row
         assert args[1] is mock_conn
 
-    def test_login_with_empty_email(self):
+    def test_login_with_empty_email_auto_creates(self):
+        created_user = {"id": 100, "email": "", "name": "", "password": "pw"}
         mock_cursor = MagicMock()
-        mock_cursor.fetchone.return_value = None
+        mock_cursor.fetchone.side_effect = [None, created_user]
+        mock_cursor.lastrowid = 100
+
         mock_conn = MagicMock()
         mock_conn.cursor.return_value = mock_cursor
-        with patch("main.get_db", return_value=mock_conn):
+
+        with patch("main.get_db", return_value=mock_conn), \
+             patch("main._user_to_response", return_value={}):
             from main import login
-            with pytest.raises(HTTPException):
-                login(self._make_login_request(email=""))
+            login(self._make_login_request(email=""))
 
 # ── auto-generated: get_keywords ──────────────────────────────────
 class TestGetKeywords:
