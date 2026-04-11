@@ -135,7 +135,16 @@ def login(req: LoginRequest):
         user = cursor.fetchone()
         cursor.close()
         if not user:
-            raise HTTPException(401, "이메일 또는 비밀번호가 올바르지 않습니다.")
+            # PoC: 없는 계정이면 자동 생성
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(
+                "INSERT INTO users (email, name, password) VALUES (%s, %s, %s)",
+                (req.email, req.email.split("@")[0], req.password),
+            )
+            conn.commit()
+            cursor.execute("SELECT * FROM users WHERE id = %s", (cursor.lastrowid,))
+            user = cursor.fetchone()
+            cursor.close()
         return _user_to_response(user, conn)
     finally:
         conn.close()
