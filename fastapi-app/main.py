@@ -49,6 +49,19 @@ app.add_middleware(
 
 # ── Models ───────────────────────────────────────────────────────
 
+class KeywordCreateRequest(BaseModel):
+    keyword_name: str
+
+
+class KeywordUpdateRequest(BaseModel):
+    keyword_name: str
+
+
+class KeywordResponse(BaseModel):
+    id: int
+    keyword_name: str
+
+
 class SignupRequest(BaseModel):
     email: str
     password: str
@@ -153,6 +166,82 @@ def get_keywords():
         keywords = [row[0] for row in cursor.fetchall()]
         cursor.close()
         return keywords
+    finally:
+        conn.close()
+
+
+# ── Admin Keywords CRUD ──────────────────────────────────────────
+
+@app.get("/api/admin/keywords", response_model=List[KeywordResponse])
+def admin_get_keywords():
+    conn = get_db()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT id, keyword_name FROM keyword ORDER BY id")
+        rows = cursor.fetchall()
+        cursor.close()
+        return rows
+    finally:
+        conn.close()
+
+
+@app.post("/api/admin/keywords", response_model=KeywordResponse, status_code=201)
+def admin_create_keyword(req: KeywordCreateRequest):
+    conn = get_db()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT id FROM keyword WHERE keyword_name = %s", (req.keyword_name,)
+        )
+        if cursor.fetchone():
+            raise HTTPException(400, "이미 존재하는 키워드입니다.")
+        cursor.execute(
+            "INSERT INTO keyword (keyword_name) VALUES (%s)", (req.keyword_name,)
+        )
+        conn.commit()
+        new_id = cursor.lastrowid
+        cursor.close()
+        return KeywordResponse(id=new_id, keyword_name=req.keyword_name)
+    finally:
+        conn.close()
+
+
+@app.put("/api/admin/keywords/{keyword_id}", response_model=KeywordResponse)
+def admin_update_keyword(keyword_id: int, req: KeywordUpdateRequest):
+    conn = get_db()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT id FROM keyword WHERE id = %s", (keyword_id,))
+        if not cursor.fetchone():
+            raise HTTPException(404, "키워드를 찾을 수 없습니다.")
+        cursor.execute(
+            "SELECT id FROM keyword WHERE keyword_name = %s AND id != %s",
+            (req.keyword_name, keyword_id),
+        )
+        if cursor.fetchone():
+            raise HTTPException(400, "이미 존재하는 키워드입니다.")
+        cursor.execute(
+            "UPDATE keyword SET keyword_name = %s WHERE id = %s",
+            (req.keyword_name, keyword_id),
+        )
+        conn.commit()
+        cursor.close()
+        return KeywordResponse(id=keyword_id, keyword_name=req.keyword_name)
+    finally:
+        conn.close()
+
+
+@app.delete("/api/admin/keywords/{keyword_id}", status_code=204)
+def admin_delete_keyword(keyword_id: int):
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM keyword WHERE id = %s", (keyword_id,))
+        if not cursor.fetchone():
+            raise HTTPException(404, "키워드를 찾을 수 없습니다.")
+        cursor.execute("DELETE FROM keyword WHERE id = %s", (keyword_id,))
+        conn.commit()
+        cursor.close()
     finally:
         conn.close()
 
