@@ -5,7 +5,7 @@ main.py API 엔드포인트 테스트
 """
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, call
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from datetime import datetime
