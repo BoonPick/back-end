@@ -240,35 +240,6 @@ class TestCrawlNotices:
 
 
 # ── auto-generated: crawl_notices ──────────────────────────────────
-# ---------------------------------------------------------------------------
-# Helper utilities (assumed to already exist in the test file)
-# ---------------------------------------------------------------------------
-
-def make_mock_db(fetchone_return=None):
-    mock_cursor = MagicMock()
-    mock_cursor.fetchone.return_value = fetchone_return
-    mock_conn = MagicMock()
-    mock_conn.cursor.return_value = mock_cursor
-    return mock_conn, mock_cursor
-
-
-def mock_requests_get_factory(notices, detail_content="<p>본문 내용</p>"):
-    """Return a side_effect callable for requests.get that serves list + detail."""
-    def _get(url, *args, **kwargs):
-        resp = MagicMock()
-        if "boardList" in url:
-            resp.json.return_value = {"data": {"list": notices}}
-        else:
-            resp.json.return_value = {
-                "data": {"content": detail_content}
-            }
-        return resp
-    return _get
-
-
-# ---------------------------------------------------------------------------
-# NEW TESTS — no overlap with existing test file
-# ---------------------------------------------------------------------------
 
 class TestCrawlNoticesMultiplePages:
     """page_count > 1 일 때 모든 페이지를 순회하는지 확인."""
@@ -404,4 +375,24 @@ class TestCrawlNoticesPdfErrorHandling:
         assert "네트워크 오류" in raw_content
 
     def test_pdf_extract_failure_still_saves(self):
-        mock_conn, mock_cursor = make_
+        mock_conn, mock_cursor = make_mock_db(fetchone_return=None)
+        notice = {"pkId": 51, "title": "PDF 추출 오류 테스트", "category": "일반"}
+
+        with patch("crawling_noti.get_db_connection", return_value=mock_conn), \
+             patch("crawling_noti.requests.get",
+                   side_effect=mock_requests_get_factory([notice])), \
+             patch("crawling_noti.find_pdf_urls",
+                   return_value=["https://example.com/extract_fail.pdf"]), \
+             patch("crawling_noti.download_pdf"), \
+             patch("crawling_noti.extract_pdf_text",
+                   side_effect=Exception("추출 오류")), \
+             patch("os.path.exists", return_value=False):
+            result = crawl_notices(page_count=1)
+
+        assert result >= 1
+        insert_calls = [
+            c for c in mock_cursor.execute.call_args_list if "INSERT" in str(c)
+        ]
+        raw_content = insert_calls[0][0][1][4]
+        assert "PDF 오류" in raw_content
+        assert "추출 오류" in raw_content
