@@ -3,11 +3,12 @@ llm.py 자동 생성 테스트
 """
 
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+import json
+from unittest.mock import MagicMock, patch
+from llm import get_llm_recommendation
 
 
 # ── auto-generated: get_llm_recommendation ──────────────────────────────────
-```python
 class TestGetLlmRecommendation:
     """Tests for get_llm_recommendation function."""
 
@@ -16,8 +17,8 @@ class TestGetLlmRecommendation:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-        expected_result = {"summary": "test", "tags": ["a", "b"]}
-        mock_call_anthropic = MagicMock(return_value='{"summary": "test", "tags": ["a", "b"]}')
+        expected_result = {"matchScore": 80, "matchReason": "test", "preparationTips": ["a"]}
+        mock_call_anthropic = MagicMock(return_value='{"matchScore": 80, "matchReason": "test", "preparationTips": ["a"]}')
         mock_parse_json = MagicMock(return_value=expected_result)
         mock_build_prompt = MagicMock(return_value="built prompt")
 
@@ -131,4 +132,7 @@ class TestGetLlmRecommendation:
         with patch("llm._call_anthropic", mock_call_anthropic), \
              patch("llm._fallback", mock_fallback), \
              patch("llm._build_user_prompt", mock_build_prompt):
-            get_llm_recommendation(["k"], "t", "
+            get_llm_recommendation(["k"], "t", "cat", "content")
+
+        captured = capsys.readouterr()
+        assert "LLM error: custom error msg" in captured.out

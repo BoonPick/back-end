@@ -256,7 +256,6 @@ class TestGetDb:
 
 
 # ── auto-generated: signup ──────────────────────────────────
-```python
 class TestSignup:
     def _make_signup_request(self, email="test@example.com", name="TestUser", password="pass123"):
         req = MagicMock()
@@ -417,11 +416,11 @@ class TestSignup:
         mock_conn.cursor.return_value = mock_cursor
 
         with patch("main.get_db", return_value=mock_conn), \
-             patch("main._user_to
-
+             patch("main._user_to_response", return_value={}):
+            from main import signup
+            signup(self._make_signup_request())
 
 # ── auto-generated: login ──────────────────────────────────
-```python
 class TestLogin:
     def _make_login_request(self, email="test@example.com", password="password123"):
         req = MagicMock()
@@ -591,11 +590,17 @@ class TestLogin:
         assert args[0] is user_row
         assert args[1] is mock_conn
 
-    def test_login_with_empty_email(self
-
+    def test_login_with_empty_email(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+        with patch("main.get_db", return_value=mock_conn):
+            from main import login
+            with pytest.raises(HTTPException):
+                login(self._make_login_request(email=""))
 
 # ── auto-generated: get_keywords ──────────────────────────────────
-```python
 class TestGetKeywords:
     def test_returns_keywords_for_user(self):
         mock_cursor = MagicMock()
@@ -788,18 +793,12 @@ class TestGetKeywords:
 
         assert result == ["키워드", "hello world", "c++", "", "a' OR 1=1 --"]
 
-    def test_user_id_zero(self):
-        mock_cursor = MagicMock()
-        mock_cursor.fetchall.return_value = []
-
-        mock_conn = MagicMock()
-        mock_conn.cursor.return_value = mock_cursor
-
-        with patch("main
-
+        with patch("main.get_db", return_value=mock_conn):
+            from main import get_keywords
+            result = get_keywords(user_id=0)
+        assert result == []
 
 # ── auto-generated: update_keywords ──────────────────────────────────
-```python
 class TestUpdateKeywords:
     def test_update_keywords_returns_keywords(self):
         mock_cursor = MagicMock()
@@ -995,11 +994,13 @@ class TestUpdateKeywords:
     def test_update_keywords_negative_user_id(self):
         mock_cursor = MagicMock()
         mock_conn = MagicMock()
-        mock_conn.cursor.return_value =
-
+        mock_conn.cursor.return_value = mock_cursor
+        with patch("main.get_db", return_value=mock_conn):
+            from main import update_keywords
+            with pytest.raises(Exception):
+                update_keywords(user_id=-1, req=MagicMock(keywords=[]))
 
 # ── auto-generated: get_board_items ──────────────────────────────────
-```python
 class TestGetBoardItems:
     def test_no_filters_returns_all_items(self):
         mock_cursor = MagicMock()
@@ -1340,7 +1341,6 @@ class TestGetBoardItem:
 
 
 # ── auto-generated: get_recommendation ──────────────────────────────────
-```python
 class TestGetRecommendation:
     def test_content_not_found_raises_404(self):
         mock_cursor = MagicMock()
@@ -1496,4 +1496,7 @@ class TestGetRecommendation:
 
         with patch("main.get_db", return_value=mock_conn), \
              patch("main.get_llm_recommendation", return_value=llm_result):
-            from main import
+            from main import get_recommendation
+            get_recommendation(item_id=1, user_id=1)
+
+        mock_cursor.close.assert_called_once()
