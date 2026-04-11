@@ -56,6 +56,16 @@ pipeline {
             }
         }
 
+        stage('Cleanup Stale Tests') {
+            steps {
+                sh '''
+                    . venv/bin/activate
+                    cd fastapi-app
+                    python scripts/cleanup_stale_tests.py
+                '''
+            }
+        }
+
         stage('Test & Coverage') {
             steps {
                 sh '''
