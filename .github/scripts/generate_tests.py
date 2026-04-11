@@ -363,7 +363,7 @@ def call_claude_create(func_info, module_imports, existing_tests, source_filenam
 
     message = client.messages.create(
         model="claude-opus-4-6",
-        max_tokens=8192,
+        max_tokens=4096,
         messages=[{"role": "user", "content": prompt}],
     )
     if message.stop_reason == "max_tokens":
@@ -404,7 +404,7 @@ def call_claude_update(func_info, module_imports, existing_section, source_filen
 
     message = client.messages.create(
         model="claude-opus-4-6",
-        max_tokens=8192,
+        max_tokens=4096,
         messages=[{"role": "user", "content": prompt}],
     )
     if message.stop_reason == "max_tokens":
