@@ -6,6 +6,7 @@ on:
     paths:
       - 'fastapi-app/**/*.py'
       - '!fastapi-app/tests/**'
+      - '!fastapi-app/scripts/**'
   workflow_dispatch:   # GitHub UI에서 수동 실행 가능
 
 jobs:
