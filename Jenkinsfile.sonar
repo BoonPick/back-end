@@ -1,0 +1,125 @@
+pipeline {
+    agent any
+
+    parameters {
+        string(
+            name: 'BRANCH',
+            defaultValue: 'sonar-backend',
+            description: '분석할 브랜치명'
+        )
+    }
+
+    environment {
+        SONAR_HOST_URL = 'http://163.239.77.71:9000'
+        SONAR_TOKEN    = credentials('sonar-token')
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: "*/${params.BRANCH}"]],
+                    userRemoteConfigs: scm.userRemoteConfigs
+                ])
+                echo "분석 브랜치: ${params.BRANCH}"
+            }
+        }
+
+        stage('Setup Environment & Install Dependencies') {
+            steps {
+                sh '''
+                    python3 -m venv venv
+                    . venv/bin/activate
+                    pip install --upgrade pip
+                    pip install -r fastapi-app/requirements.txt
+                    pip install pytest pytest-cov pytest-html
+                '''
+            }
+        }
+
+        stage('Cleanup Stale Tests') {
+            steps {
+                sh '''
+                    . venv/bin/activate
+                    cd fastapi-app
+                    python scripts/cleanup_stale_tests.py
+                '''
+            }
+        }
+
+        stage('Test & Coverage') {
+            steps {
+                sh '''
+                    . venv/bin/activate
+                    mkdir -p pytest_report
+                    cd fastapi-app
+                    pytest tests \
+                      --html=../pytest_report/report.html \
+                      --self-contained-html \
+                      --cov=. \
+                      --cov-report=xml:coverage.xml \
+                      --cov-report=html:../htmlcov \
+                      --cov-report=term
+                '''
+            }
+            post {
+                always {
+                    publishHTML(target: [
+                        reportName : 'Pytest HTML Report',
+                        reportDir  : 'pytest_report',
+                        reportFiles: 'report.html',
+                        keepAll    : true,
+                        alwaysLinkToLastBuild: true,
+                        allowMissing: true
+                    ])
+                    publishHTML(target: [
+                        reportName : 'Coverage Report',
+                        reportDir  : 'htmlcov',
+                        reportFiles: 'index.html',
+                        keepAll    : true,
+                        alwaysLinkToLastBuild: true,
+                        allowMissing: true
+                    ])
+                }
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            steps {
+                dir('fastapi-app') {
+                    script {
+                        def scannerHome = tool 'sonar'
+                        withSonarQubeEnv('sonarqube') {
+                            sh """
+                                "${scannerHome}/bin/sonar-scanner" \
+                                  -Dsonar.projectKey=boonpick-backend \
+                                  -Dsonar.projectName='BoonPick Backend' \
+                                  -Dsonar.sources=. \
+                                  -Dsonar.tests=tests \
+                                  -Dsonar.host.url="${SONAR_HOST_URL}" \
+                                  -Dsonar.token="${SONAR_TOKEN}" \
+                                  -Dsonar.python.coverage.reportPaths=coverage.xml \
+                                  -Dsonar.branch.name=${params.BRANCH}
+                            """
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            echo "SonarQube 분석 완료 - 브랜치: ${params.BRANCH}"
+        }
+    }
+}
