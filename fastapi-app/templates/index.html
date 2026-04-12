@@ -35,7 +35,7 @@
     <script>
         async function fetchContents() {
             try {
-                const response = await fetch('/contents');
+                const response = await fetch('/api/board?size=100');
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const contents = await response.json();
                 const tbody = document.getElementById('contents-body');
@@ -45,10 +45,10 @@
                     tr.innerHTML = `
                         <td>${item.id}</td>
                         <td>${item.title}</td>
-                        <td>${item.source_name ?? '-'}</td>
+                        <td>${item.source ?? '-'}</td>
                         <td>${item.category ?? '-'}</td>
-                        <td>${item.url ? `<a class="url-link" href="${item.url}" target="_blank">링크</a>` : '-'}</td>
-                        <td>${item.created_at ? item.created_at.replace('T', ' ').substring(0, 19) : '-'}</td>
+                        <td>${item.sourceUrl ? `<a class="url-link" href="${item.sourceUrl}" target="_blank">링크</a>` : '-'}</td>
+                        <td>${item.date ?? '-'}</td>
                     `;
                     tbody.appendChild(tr);
                 });

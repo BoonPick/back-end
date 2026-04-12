@@ -36,7 +36,11 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:5174"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://163.239.77.78:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -44,6 +48,19 @@ app.add_middleware(
 
 
 # ── Models ───────────────────────────────────────────────────────
+
+class KeywordCreateRequest(BaseModel):
+    keyword_name: str
+
+
+class KeywordUpdateRequest(BaseModel):
+    keyword_name: str
+
+
+class KeywordResponse(BaseModel):
+    id: int
+    keyword_name: str
+
 
 class SignupRequest(BaseModel):
     email: str
@@ -60,11 +77,7 @@ class UserResponse(BaseModel):
     id: str
     email: str
     name: str
-    keywords: List[str]
-
-
-class KeywordsRequest(BaseModel):
-    keywords: List[str]
+    keywords: List[str] = []
 
 
 class BoardItem(BaseModel):
@@ -86,18 +99,13 @@ class Recommendation(BaseModel):
     preparationTips: List[str]
 
 
-# ── Auth ─────────────────────────────────────────────────────────
+# ── Auth (users: id, login_id, user_name, password, email) ──────
 
-def _user_to_response(user_row: dict, conn) -> UserResponse:
-    cursor = conn.cursor()
-    cursor.execute("SELECT keyword FROM user_keywords WHERE user_id = %s", (user_row["id"],))
-    keywords = [row[0] for row in cursor.fetchall()]
-    cursor.close()
+def _user_to_response(user_row: dict) -> UserResponse:
     return UserResponse(
         id=str(user_row["id"]),
-        email=user_row["email"],
-        name=user_row["name"],
-        keywords=keywords,
+        email=user_row.get("email") or user_row.get("login_id") or "",
+        name=user_row.get("user_name") or "",
     )
 
 
@@ -106,18 +114,18 @@ def signup(req: SignupRequest):
     conn = get_db()
     try:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM users WHERE email = %s", (req.email,))
+        cursor.execute("SELECT * FROM users WHERE login_id = %s", (req.email,))
         if cursor.fetchone():
             raise HTTPException(400, "이미 가입된 이메일입니다.")
         cursor.execute(
-            "INSERT INTO users (email, name, password) VALUES (%s, %s, %s)",
-            (req.email, req.name, req.password),
+            "INSERT INTO users (login_id, user_name, password, email) VALUES (%s, %s, %s, %s)",
+            (req.email, req.name, req.password, req.email),
         )
         conn.commit()
         cursor.execute("SELECT * FROM users WHERE id = %s", (cursor.lastrowid,))
         user = cursor.fetchone()
         cursor.close()
-        return _user_to_response(user, conn)
+        return _user_to_response(user)
     finally:
         conn.close()
 
@@ -127,24 +135,34 @@ def login(req: LoginRequest):
     conn = get_db()
     try:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM users WHERE email = %s", (req.email,))
+        cursor.execute(
+            "SELECT * FROM users WHERE login_id = %s OR email = %s",
+            (req.email, req.email),
+        )
         user = cursor.fetchone()
-        cursor.close()
         if not user:
-            raise HTTPException(401, "이메일 또는 비밀번호가 올바르지 않습니다.")
-        return _user_to_response(user, conn)
+            # PoC: 없는 계정이면 자동 생성
+            cursor.execute(
+                "INSERT INTO users (login_id, user_name, password, email) VALUES (%s, %s, %s, %s)",
+                (req.email, req.email.split("@")[0], req.password, req.email),
+            )
+            conn.commit()
+            cursor.execute("SELECT * FROM users WHERE id = %s", (cursor.lastrowid,))
+            user = cursor.fetchone()
+        cursor.close()
+        return _user_to_response(user)
     finally:
         conn.close()
 
 
-# ── Keywords ─────────────────────────────────────────────────────
+# ── Keywords (keyword: id, keyword_name) ─────────────────────────
 
-@app.get("/api/users/{user_id}/keywords", response_model=List[str])
-def get_keywords(user_id: int):
+@app.get("/api/keywords", response_model=List[str])
+def get_keywords():
     conn = get_db()
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT keyword FROM user_keywords WHERE user_id = %s", (user_id,))
+        cursor.execute("SELECT keyword_name FROM keyword ORDER BY keyword_name")
         keywords = [row[0] for row in cursor.fetchall()]
         cursor.close()
         return keywords
@@ -152,20 +170,78 @@ def get_keywords(user_id: int):
         conn.close()
 
 
-@app.put("/api/users/{user_id}/keywords", response_model=List[str])
-def update_keywords(user_id: int, req: KeywordsRequest):
+# ── Admin Keywords CRUD ──────────────────────────────────────────
+
+@app.get("/api/admin/keywords", response_model=List[KeywordResponse])
+def admin_get_keywords():
+    conn = get_db()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT id, keyword_name FROM keyword ORDER BY id")
+        rows = cursor.fetchall()
+        cursor.close()
+        return rows
+    finally:
+        conn.close()
+
+
+@app.post("/api/admin/keywords", response_model=KeywordResponse, status_code=201)
+def admin_create_keyword(req: KeywordCreateRequest):
+    conn = get_db()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT id FROM keyword WHERE keyword_name = %s", (req.keyword_name,)
+        )
+        if cursor.fetchone():
+            raise HTTPException(400, "이미 존재하는 키워드입니다.")
+        cursor.execute(
+            "INSERT INTO keyword (keyword_name) VALUES (%s)", (req.keyword_name,)
+        )
+        conn.commit()
+        new_id = cursor.lastrowid
+        cursor.close()
+        return KeywordResponse(id=new_id, keyword_name=req.keyword_name)
+    finally:
+        conn.close()
+
+
+@app.put("/api/admin/keywords/{keyword_id}", response_model=KeywordResponse)
+def admin_update_keyword(keyword_id: int, req: KeywordUpdateRequest):
+    conn = get_db()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT id FROM keyword WHERE id = %s", (keyword_id,))
+        if not cursor.fetchone():
+            raise HTTPException(404, "키워드를 찾을 수 없습니다.")
+        cursor.execute(
+            "SELECT id FROM keyword WHERE keyword_name = %s AND id != %s",
+            (req.keyword_name, keyword_id),
+        )
+        if cursor.fetchone():
+            raise HTTPException(400, "이미 존재하는 키워드입니다.")
+        cursor.execute(
+            "UPDATE keyword SET keyword_name = %s WHERE id = %s",
+            (req.keyword_name, keyword_id),
+        )
+        conn.commit()
+        cursor.close()
+        return KeywordResponse(id=keyword_id, keyword_name=req.keyword_name)
+    finally:
+        conn.close()
+
+
+@app.delete("/api/admin/keywords/{keyword_id}", status_code=204)
+def admin_delete_keyword(keyword_id: int):
     conn = get_db()
     try:
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM user_keywords WHERE user_id = %s", (user_id,))
-        for kw in req.keywords:
-            cursor.execute(
-                "INSERT INTO user_keywords (user_id, keyword) VALUES (%s, %s)",
-                (user_id, kw),
-            )
+        cursor.execute("SELECT id FROM keyword WHERE id = %s", (keyword_id,))
+        if not cursor.fetchone():
+            raise HTTPException(404, "키워드를 찾을 수 없습니다.")
+        cursor.execute("DELETE FROM keyword WHERE id = %s", (keyword_id,))
         conn.commit()
         cursor.close()
-        return req.keywords
     finally:
         conn.close()
 
@@ -219,22 +295,22 @@ def get_board_items(
             source_names = [k for k, v in CATEGORY_MAP.items() if v == category]
             if source_names:
                 placeholders = ",".join(["%s"] * len(source_names))
-                conditions.append(f"source_name IN ({placeholders})")
+                conditions.append(f"c.source_name IN ({placeholders})")
                 params.extend(source_names)
 
-        # keyword search
+        # keyword search via keyword_contents JOIN, fallback to LIKE
         keyword_list = [k.strip() for k in keywords.split(",") if k.strip()] if keywords else []
         if keyword_list:
             kw_clauses = []
             for kw in keyword_list:
-                kw_clauses.append("(title LIKE %s OR raw_content LIKE %s)")
+                kw_clauses.append("(c.title LIKE %s OR c.raw_content LIKE %s)")
                 params.extend([f"%{kw}%", f"%{kw}%"])
             conditions.append(f"({' OR '.join(kw_clauses)})")
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         offset = (page - 1) * size
 
-        query = f"SELECT * FROM contents {where} ORDER BY created_at DESC LIMIT %s OFFSET %s"
+        query = f"SELECT c.* FROM contents c {where} ORDER BY c.created_at DESC LIMIT %s OFFSET %s"
         params.extend([size, offset])
 
         cursor.execute(query, params)
@@ -264,22 +340,18 @@ def get_board_item(item_id: int):
 # ── Recommendation (LLM) ────────────────────────────────────────
 
 @app.get("/api/recommendations/{item_id}", response_model=Recommendation)
-def get_recommendation(item_id: int, user_id: int = Query(...)):
+def get_recommendation(item_id: int, keywords: str = Query("")):
     conn = get_db()
     try:
-        # fetch content
         cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT * FROM contents WHERE id = %s", (item_id,))
         content = cursor.fetchone()
+        cursor.close()
         if not content:
             raise HTTPException(404, "게시글을 찾을 수 없습니다.")
 
-        # fetch user keywords
-        cursor.execute("SELECT keyword FROM user_keywords WHERE user_id = %s", (user_id,))
-        keywords = [row["keyword"] for row in cursor.fetchall()]
-        cursor.close()
-
-        if not keywords:
+        keyword_list = [k.strip() for k in keywords.split(",") if k.strip()]
+        if not keyword_list:
             return Recommendation(
                 itemId=str(item_id),
                 matchScore=0,
@@ -288,7 +360,7 @@ def get_recommendation(item_id: int, user_id: int = Query(...)):
             )
 
         result = get_llm_recommendation(
-            keywords=keywords,
+            keywords=keyword_list,
             title=content.get("title", ""),
             category=content.get("category", ""),
             raw_content=content.get("raw_content", ""),
