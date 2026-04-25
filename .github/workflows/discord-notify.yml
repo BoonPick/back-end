@@ -1,0 +1,47 @@
+name: Discord Notify on Auto Test PR
+
+on:
+  pull_request:
+    types: [opened]
+    branches:
+      - main
+
+jobs:
+  notify:
+    if: startsWith(github.head_ref, 'auto-test/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Discord notification
+        run: |
+          python3 - <<PYEOF
+          import urllib.request, json
+
+          webhook = "https://discord.com/api/webhooks/1497638306710687976/DxhPxwys1ymis23hKomfNafwAW50oMQsxDpA8Fw5BVTurwRWNUqslFOslmpvRpjEGUDR"
+          repo = "${{ github.repository }}"
+          pr_url = "${{ github.event.pull_request.html_url }}"
+          pr_title = "${{ github.event.pull_request.title }}"
+          branch = "${{ github.head_ref }}"
+          date = branch.replace("auto-test/", "")
+
+          is_backend = "back-end" in repo
+          emoji = "\U0001f40d" if is_backend else "⚛️"
+          repo_label = "Back-end (FastAPI)" if is_backend else "Front-end (React)"
+
+          payload = {
+              "embeds": [{
+                  "title": "\U0001f9ea BoonPick 일일 테스트 리포트",
+                  "color": 3066993,
+                  "fields": [
+                      {"name": "\U0001f4c5 날짜", "value": date, "inline": True},
+                      {"name": f"{emoji} {repo_label}", "value": pr_title, "inline": False},
+                      {"name": "\U0001f517 PR 링크", "value": pr_url, "inline": False},
+                  ],
+                  "footer": {"text": "BoonPick Auto Test Bot"}
+              }]
+          }
+
+          data = json.dumps(payload).encode("utf-8")
+          req = urllib.request.Request(webhook, data=data, headers={"Content-Type": "application/json; charset=utf-8"})
+          resp = urllib.request.urlopen(req)
+          print(f"Discord sent: {resp.status}")
+          PYEOF
