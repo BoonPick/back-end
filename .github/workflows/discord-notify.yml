@@ -2,7 +2,7 @@ name: Discord Notify on Auto Test PR
 
 on:
   pull_request:
-    types: [opened]
+    types: [opened, reopened]
     branches:
       - main
 
