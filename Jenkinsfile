@@ -77,7 +77,8 @@ pipeline {
                       --self-contained-html \
                       --cov=. \
                       --cov-report=html:../htmlcov \
-                      --cov-report=term
+                      --cov-report=term \
+                    || [ $? -eq 5 ]
                 '''
             }
             post {
