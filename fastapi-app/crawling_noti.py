@@ -8,19 +8,16 @@ from pdfviewer import find_pdf_urls, download_pdf, extract_pdf_text
 BASE_URL = "https://www.sogang.ac.kr"
 
 # 크롤링할 게시판 설정
-# bbs_config_fk: API 파라미터, page_url: 공지 상세 페이지 URL 기준 (중복 체크용)
 BOARDS = [
     {
         "source_name": "sogang_notice",
         "bbs_config_fk": 2,
         "page_size": 15,
-        "page_url": f"{BASE_URL}/ko/notice",
     },
     {
         "source_name": "sogang_scholarship",
         "bbs_config_fk": 141,
         "page_size": 16,
-        "page_url": f"{BASE_URL}/ko/notice",
     },
 ]
 
@@ -113,7 +110,6 @@ def crawl_notices(page_count: int = 1):
         for board in BOARDS:
             source_name = board["source_name"]
             bbs_config_fk = board["bbs_config_fk"]
-            page_url = board["page_url"]
             page_size = board["page_size"]
 
             print(f"\n[{source_name}] 크롤링 시작 ({page_count}페이지)")
@@ -140,7 +136,7 @@ def crawl_notices(page_count: int = 1):
                     extracted_category, title = extract_category_from_title(raw_title)
                     category = extracted_category or n.get("category", "") or ""
 
-                    notice_url = f"{page_url}?bbsConfigFk={bbs_config_fk}&pkId={pkId}"
+                    notice_url = f"{BASE_URL}/ko/detail/{pkId}?bbsConfigFk={bbs_config_fk}"
 
                     # 이미 DB에 있으면 건너뜀
                     if notice_exists(cursor, notice_url):
