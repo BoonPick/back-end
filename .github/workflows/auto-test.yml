@@ -1,13 +1,7 @@
 name: Auto Generate Tests
 
 on:
-  push:
-    branches: [main, dev, 'test/**']
-    paths:
-      - 'fastapi-app/**/*.py'
-      - '!fastapi-app/tests/**'
-      - '!fastapi-app/scripts/**'
-  workflow_dispatch:   # GitHub UI에서 수동 실행 가능
+  workflow_dispatch:   # 수동 실행만 허용 (자동 트리거 비활성화)
 
 jobs:
   generate-tests:
