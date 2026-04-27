@@ -1,0 +1,5 @@
+[run]
+omit =
+    tests/*
+    from_saint0.py
+    scheduler.py
