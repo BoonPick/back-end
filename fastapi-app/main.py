@@ -296,6 +296,8 @@ def _row_to_board_item(row: dict) -> BoardItem:
 def get_board_items(
     category: Optional[str] = None,
     keywords: Optional[str] = None,
+    search: Optional[str] = None,
+    duty: Optional[str] = None,
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
 ):
@@ -314,7 +316,7 @@ def get_board_items(
                 conditions.append(f"c.source_name IN ({placeholders})")
                 params.extend(source_names)
 
-        # keyword search via keyword_contents JOIN, fallback to LIKE
+        # keyword recommendation filter (title OR raw_content LIKE)
         keyword_list = [k.strip() for k in keywords.split(",") if k.strip()] if keywords else []
         if keyword_list:
             kw_clauses = []
@@ -322,6 +324,16 @@ def get_board_items(
                 kw_clauses.append("(c.title LIKE %s OR c.raw_content LIKE %s)")
                 params.extend([f"%{kw}%", f"%{kw}%"])
             conditions.append(f"({' OR '.join(kw_clauses)})")
+
+        # title search
+        if search:
+            conditions.append("c.title LIKE %s")
+            params.append(f"%{search}%")
+
+        # duty filter (job_postings only)
+        if duty:
+            conditions.append("jp.duty = %s")
+            params.append(duty)
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         offset = (page - 1) * size
