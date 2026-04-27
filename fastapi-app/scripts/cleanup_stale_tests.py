@@ -91,8 +91,8 @@ def main():
         print(f"ERROR: {main_py} not found", file=sys.stderr)
         sys.exit(1)
     if not test_py.exists():
-        print(f"ERROR: {test_py} not found", file=sys.stderr)
-        sys.exit(1)
+        print(f"SKIP: {test_py} not found, nothing to clean up.")
+        sys.exit(0)
 
     main_funcs = get_main_functions(main_py)
     removed = cleanup_stale_tests(test_py, main_funcs)
