@@ -3,6 +3,7 @@ crawling_noti.py 테스트
 """
 
 import pytest
+import mysql.connector
 from unittest.mock import MagicMock, patch, call
 
 from crawling_noti import (
@@ -10,6 +11,7 @@ from crawling_noti import (
     extract_category_from_title,
     save_notice,
     crawl_notices,
+    parse_notice_date,
 )
 
 
