@@ -371,6 +371,15 @@ def get_recommendation(item_id: int, keywords: str = Query("")):
         conn.close()
 
 
+# ── Admin / Crawl ────────────────────────────────────────────────
+
+@app.post("/api/admin/crawl")
+def trigger_crawl(page_count: int = Query(5, ge=1, le=20)):
+    from crawling_noti import crawl_notices
+    saved = crawl_notices(page_count=page_count)
+    return {"saved": saved, "page_count": page_count}
+
+
 # ── Legacy / Static ──────────────────────────────────────────────
 
 @app.get("/")

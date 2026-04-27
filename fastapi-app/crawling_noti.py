@@ -58,16 +58,44 @@ def extract_category_from_title(title: str) -> tuple[str, str]:
     return "", title
 
 
+def parse_notice_date(notice: dict):
+    """
+    API 응답에서 공지 게시 날짜를 파싱. 여러 필드명을 순서대로 시도.
+    파싱 성공 시 datetime 반환, 실패 시 None 반환.
+    """
+    from datetime import datetime as dt
+    candidates = ["createDate", "registDate", "regDate", "writeDate", "modifyDate", "updDate"]
+    for field in candidates:
+        raw = notice.get(field)
+        if not raw:
+            continue
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d", "%Y%m%d"):
+            try:
+                return dt.strptime(str(raw)[:19], fmt)
+            except ValueError:
+                continue
+    return None
+
+
 def save_notice(cursor, title: str, source_name: str, category: str,
-                url: str, raw_content: str):
+                url: str, raw_content: str, posted_at=None):
     """공지를 DB에 저장 (본문 + PDF 텍스트 모두 raw_content에 포함)"""
-    cursor.execute(
-        """
-        INSERT INTO contents (title, source_name, category, url, raw_content, created_at, updated_at)
-        VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
-        """,
-        (title, source_name, category, url, raw_content),
-    )
+    if posted_at is not None:
+        cursor.execute(
+            """
+            INSERT INTO contents (title, source_name, category, url, raw_content, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, NOW())
+            """,
+            (title, source_name, category, url, raw_content, posted_at),
+        )
+    else:
+        cursor.execute(
+            """
+            INSERT INTO contents (title, source_name, category, url, raw_content, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
+            """,
+            (title, source_name, category, url, raw_content),
+        )
 
 
 # ── 메인 크롤링 ──────────────────────────────────────────────────
@@ -157,11 +185,13 @@ def crawl_notices(page_count: int = 1):
 
                     raw_content = "\n\n".join(content_parts)
 
+                    posted_at = parse_notice_date(n) or parse_notice_date(detail_data)
                     save_notice(cursor, title, source_name, category,
-                                list_url, raw_content)
+                                list_url, raw_content, posted_at=posted_at)
                     conn.commit()
                     saved_count += 1
-                    print(f"  SAVED: [{pkId}] {title}")
+                    date_label = posted_at.strftime("%Y-%m-%d") if posted_at else "날짜 미확인(NOW 사용)"
+                    print(f"  SAVED: [{pkId}] {title} ({date_label})")
 
     finally:
         cursor.close()
