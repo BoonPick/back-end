@@ -15,11 +15,14 @@ sys.modules.setdefault("pdfviewer", _mock_pdfviewer)
 
 _mock_crawling_noti = types.ModuleType("crawling_noti")
 _mock_crawling_noti.crawl_notices = MagicMock(return_value=5)
-sys.modules.setdefault("crawling_noti", _mock_crawling_noti)
+sys.modules["crawling_noti"] = _mock_crawling_noti
 
 _mock_crawling_job = types.ModuleType("crawling_job")
 _mock_crawling_job.crawl_jobs = MagicMock(return_value=10)
-sys.modules.setdefault("crawling_job", _mock_crawling_job)
+sys.modules["crawling_job"] = _mock_crawling_job
+
+# scheduler may have been imported earlier with real modules; force re-import
+sys.modules.pop("scheduler", None)
 
 import pytest
 from scheduler import noti_crawl, job_posting_crawl
