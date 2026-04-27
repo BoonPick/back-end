@@ -212,8 +212,8 @@ def _extract_rcdx_list(html: str) -> list[str]:
 
     soup = BeautifulSoup(html, "html.parser")
 
-    # href 또는 onclick에서 rcdx 파라미터 추출
-    pattern = re.compile(r"rcdx=([A-Fa-f0-9]{40,})")
+    # detailView('rcdx', 'num') 패턴에서 첫 번째 인자 추출
+    pattern = re.compile(r"detailView\('([A-Fa-f0-9]{40,})'")
 
     for tag in soup.find_all(["a", "tr", "td", "span", "div"]):
         for attr in ["href", "onclick"]:
@@ -233,11 +233,11 @@ def _collect_rcdx_all_pages(page, page_count: int) -> list[str]:
     """여러 페이지에서 rcdx 목록 수집."""
     all_rcdx = []
 
-    page.goto(LIST_URL, wait_until="domcontentloaded", timeout=20000)
-
     for page_num in range(1, page_count + 1):
         print(f"  목록 페이지 {page_num} 수집 중...")
-        page.wait_for_load_state("domcontentloaded")
+        # 페이지네이션이 hcSubmit() 형식이므로 ?rp=N으로 직접 접근
+        url = f"{LIST_URL}?rp={page_num}" if page_num > 1 else LIST_URL
+        page.goto(url, wait_until="domcontentloaded", timeout=20000)
 
         rcdx_list = _extract_rcdx_list(page.content())
         if not rcdx_list:
@@ -246,20 +246,6 @@ def _collect_rcdx_all_pages(page, page_count: int) -> list[str]:
 
         all_rcdx.extend(rcdx_list)
         print(f"  {len(rcdx_list)}개 공고 발견 (누적 {len(all_rcdx)}개)")
-
-        if page_num < page_count:
-            moved = False
-            for sel in [f"a:text-is('{page_num + 1}')", "a:has-text('다음')", "a:has-text('>')"]:
-                try:
-                    page.click(sel, timeout=3000)
-                    page.wait_for_load_state("domcontentloaded")
-                    moved = True
-                    break
-                except PlaywrightTimeout:
-                    continue
-            if not moved:
-                print("  다음 페이지 없음, 종료")
-                break
 
     return all_rcdx
 

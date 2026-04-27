@@ -109,21 +109,21 @@ class TestParseDetail:
 class TestExtractRcdxList:
     def test_extracts_from_href(self):
         rcdx = "A" * 64
-        html = f'<a href="/Recruit/RecruitView.aspx?rcdx={rcdx}&modalChk=Y">공고</a>'
+        html = f'<a href="javascript:detailView(\'{rcdx}\', \'123\');">공고</a>'
         result = _extract_rcdx_list(html)
         assert rcdx in result
 
     def test_extracts_from_onclick(self):
         rcdx = "B" * 64
-        html = f'<a onclick="openw(\'/Recruit/RecruitView.aspx?rcdx={rcdx}&m=Y\')">공고</a>'
+        html = f'<a onclick="detailView(\'{rcdx}\',\'456\')">공고</a>'
         result = _extract_rcdx_list(html)
         assert rcdx in result
 
     def test_deduplicates(self):
         rcdx = "C" * 64
         html = (
-            f'<a href="?rcdx={rcdx}">1</a>'
-            f'<a href="?rcdx={rcdx}">2</a>'
+            f'<a href="javascript:detailView(\'{rcdx}\', \'1\');">1</a>'
+            f'<a onclick="detailView(\'{rcdx}\',\'1\')">2</a>'
         )
         result = _extract_rcdx_list(html)
         assert result.count(rcdx) == 1
@@ -132,5 +132,5 @@ class TestExtractRcdxList:
         assert _extract_rcdx_list("") == []
 
     def test_ignores_short_rcdx(self):
-        html = '<a href="?rcdx=SHORT">공고</a>'
+        html = "<a onclick=\"detailView('SHORT','1')\">공고</a>"
         assert _extract_rcdx_list(html) == []
