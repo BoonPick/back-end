@@ -69,7 +69,7 @@ def parse_notice_date(notice: dict):
         raw = notice.get(field)
         if not raw:
             continue
-        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d", "%Y%m%d"):
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d", "%Y%m%d%H%M%S", "%Y%m%d"):
             try:
                 return dt.strptime(str(raw)[:19], fmt)
             except ValueError:
