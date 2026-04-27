@@ -17,3 +17,6 @@ yarn.lock
 .vscode/
 .idea/
 *.sw?
+
+# Claude Code 로컬 설정 (공유 불필요)
+.claude/
