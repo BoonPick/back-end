@@ -298,6 +298,7 @@ def get_board_items(
     keywords: Optional[str] = None,
     search: Optional[str] = None,
     duty: Optional[str] = None,
+    work_type: Optional[str] = None,
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
 ):
@@ -334,6 +335,11 @@ def get_board_items(
         if duty:
             conditions.append("jp.duty = %s")
             params.append(duty)
+
+        # work_type filter (job_postings only)
+        if work_type:
+            conditions.append("jp.work_type = %s")
+            params.append(work_type)
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         offset = (page - 1) * size
