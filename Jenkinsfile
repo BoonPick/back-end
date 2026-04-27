@@ -21,6 +21,8 @@ pipeline {
         DB_HOST     = credentials('BOONPICK_DB_HOST')
         DB_USER     = credentials('BOONPICK_DB_USER')
         DB_PASSWORD = credentials('BOONPICK_DB_PASSWORD')
+        SAINT_ID    = credentials('BOONPICK_SAINT_ID')
+        SAINT_PW    = credentials('BOONPICK_SAINT_PW')
     }
 
     stages {
@@ -140,6 +142,8 @@ pipeline {
                                     -e DB_HOST=${env.DB_HOST} \\
                                     -e DB_USER=${env.DB_USER} \\
                                     -e DB_PASSWORD='${env.DB_PASSWORD}' \\
+                                    -e SAINT_ID='${env.SAINT_ID}' \\
+                                    -e SAINT_PW='${env.SAINT_PW}' \\
                                     ${IMAGE_NAME}:${env.IMAGE_TAG} && \\
                                 docker image prune -f
                             "

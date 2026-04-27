@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 from apscheduler.schedulers.blocking import BlockingScheduler
 
 from crawling_noti import crawl_notices
+from crawling_job import crawl_jobs
 
 KST = ZoneInfo("Asia/Seoul")
 
@@ -24,27 +25,44 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def job_crawl():
-    logger.info("크롤링 시작")
+def noti_crawl():
+    logger.info("공지 크롤링 시작")
     try:
         saved = crawl_notices(page_count=2)
-        logger.info(f"크롤링 완료 — {saved}건 저장됨")
+        logger.info(f"공지 크롤링 완료 — {saved}건 저장됨")
     except Exception as e:
-        logger.error(f"크롤링 오류: {e}")
+        logger.error(f"공지 크롤링 오류: {e}")
+
+
+def job_posting_crawl():
+    logger.info("채용 크롤링 시작")
+    try:
+        saved = crawl_jobs(page_count=3)
+        logger.info(f"채용 크롤링 완료 — {saved}건 저장됨")
+    except Exception as e:
+        logger.error(f"채용 크롤링 오류: {e}")
 
 
 if __name__ == "__main__":
     scheduler = BlockingScheduler()
     scheduler.add_job(
-        job_crawl,
+        noti_crawl,
         trigger="cron",
         hour=2,
         minute=15,
         timezone=KST,
-        id="daily_crawl",
+        id="daily_noti_crawl",
+    )
+    scheduler.add_job(
+        job_posting_crawl,
+        trigger="cron",
+        hour=2,
+        minute=30,
+        timezone=KST,
+        id="daily_job_crawl",
     )
 
-    logger.info("스케줄러 시작 — 매일 오전 2시 크롤링")
+    logger.info("스케줄러 시작 — 매일 오전 2시 공지/채용 크롤링")
     try:
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):

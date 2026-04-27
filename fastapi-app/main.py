@@ -14,6 +14,7 @@ import mysql.connector
 
 from llm import get_llm_recommendation
 import crawling_noti
+import crawling_job
 
 
 # ── DB ───────────────────────────────────────────────────────────
@@ -252,6 +253,7 @@ def admin_delete_keyword(keyword_id: int):
 CATEGORY_MAP = {
     "sogang_notice": "announcement",
     "sogang_scholarship": "scholarship",
+    "sogang_job": "job",
 }
 
 
@@ -377,6 +379,12 @@ def get_recommendation(item_id: int, keywords: str = Query("")):
 @app.post("/api/admin/crawl")
 def trigger_crawl(page_count: int = Query(5, ge=1, le=20)):
     saved = crawling_noti.crawl_notices(page_count=page_count)
+    return {"saved": saved, "page_count": page_count}
+
+
+@app.post("/api/admin/crawl/jobs")
+def trigger_job_crawl(page_count: int = Query(3, ge=1, le=10)):
+    saved = crawling_job.crawl_jobs(page_count=page_count)
     return {"saved": saved, "page_count": page_count}
 
 

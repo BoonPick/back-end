@@ -10,6 +10,9 @@ COPY fastapi-app/requirements.txt .
 # 종속성 설치
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Playwright Chromium 브라우저 및 OS 의존성 설치
+RUN playwright install --with-deps chromium
+
 # 앱 코드 전체 복사
 COPY fastapi-app/ .
 
