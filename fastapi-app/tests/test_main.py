@@ -1920,3 +1920,187 @@ class TestAdminDeleteKeyword:
             admin_delete_keyword(1)
 
         mock_get_db.assert_called_once()
+
+
+# ── auto-generated: trigger_crawl ──────────────────────────────────
+class TestTriggerCrawl:
+    def test_trigger_crawl_default_page_count(self):
+        with patch("main.crawling_noti.crawl_notices", create=True) as mock_crawl:
+            mock_crawl.return_value = 10
+            with patch.dict("sys.modules", {"crawling_noti": MagicMock(crawl_notices=mock_crawl)}):
+                from main import trigger_crawl
+                result = trigger_crawl(page_count=5)
+
+        assert result == {"saved": 10, "page_count": 5}
+
+    def test_trigger_crawl_custom_page_count(self):
+        mock_module = MagicMock()
+        mock_module.crawl_notices.return_value = 20
+
+        with patch.dict("sys.modules", {"crawling_noti": mock_module}):
+            from main import trigger_crawl
+            result = trigger_crawl(page_count=10)
+
+        mock_module.crawl_notices.assert_called_once_with(page_count=10)
+        assert result == {"saved": 20, "page_count": 10}
+
+    def test_trigger_crawl_min_page_count(self):
+        mock_module = MagicMock()
+        mock_module.crawl_notices.return_value = 3
+
+        with patch.dict("sys.modules", {"crawling_noti": mock_module}):
+            from main import trigger_crawl
+            result = trigger_crawl(page_count=1)
+
+        mock_module.crawl_notices.assert_called_once_with(page_count=1)
+        assert result == {"saved": 3, "page_count": 1}
+
+    def test_trigger_crawl_max_page_count(self):
+        mock_module = MagicMock()
+        mock_module.crawl_notices.return_value = 100
+
+        with patch.dict("sys.modules", {"crawling_noti": mock_module}):
+            from main import trigger_crawl
+            result = trigger_crawl(page_count=20)
+
+        mock_module.crawl_notices.assert_called_once_with(page_count=20)
+        assert result == {"saved": 100, "page_count": 20}
+
+    def test_trigger_crawl_returns_zero_saved(self):
+        mock_module = MagicMock()
+        mock_module.crawl_notices.return_value = 0
+
+        with patch.dict("sys.modules", {"crawling_noti": mock_module}):
+            from main import trigger_crawl
+            result = trigger_crawl(page_count=5)
+
+        assert result["saved"] == 0
+        assert result["page_count"] == 5
+
+    def test_trigger_crawl_crawl_notices_called_with_correct_args(self):
+        mock_module = MagicMock()
+        mock_module.crawl_notices.return_value = 7
+
+        with patch.dict("sys.modules", {"crawling_noti": mock_module}):
+            from main import trigger_crawl
+            trigger_crawl(page_count=13)
+
+        mock_module.crawl_notices.assert_called_once_with(page_count=13)
+
+    def test_trigger_crawl_crawl_raises_exception(self):
+        mock_module = MagicMock()
+        mock_module.crawl_notices.side_effect = Exception("Crawl failed")
+
+        with patch.dict("sys.modules", {"crawling_noti": mock_module}):
+            from main import trigger_crawl
+            with pytest.raises(Exception, match="Crawl failed"):
+                trigger_crawl(page_count=5)
+
+    def test_trigger_crawl_crawl_raises_connection_error(self):
+        mock_module = MagicMock()
+        mock_module.crawl_notices.side_effect = ConnectionError("Network unreachable")
+
+        with patch.dict("sys.modules", {"crawling_noti": mock_module}):
+            from main import trigger_crawl
+            with pytest.raises(ConnectionError):
+                trigger_crawl(page_count=3)
+
+    def test_trigger_crawl_crawl_raises_timeout_error(self):
+        mock_module = MagicMock()
+        mock_module.crawl_notices.side_effect = TimeoutError("Request timed out")
+
+        with patch.dict("sys.modules", {"crawling_noti": mock_module}):
+            from main import trigger_crawl
+            with pytest.raises(TimeoutError):
+                trigger_crawl(page_count=2)
+
+    def test_trigger_crawl_result_contains_saved_key(self):
+        mock_module = MagicMock()
+        mock_module.crawl_notices.return_value = 5
+
+        with patch.dict("sys.modules", {"crawling_noti": mock_module}):
+            from main import trigger_crawl
+            result = trigger_crawl(page_count=5)
+
+        assert "saved" in result
+
+    def test_trigger_crawl_result_contains_page_count_key(self):
+        mock_module = MagicMock()
+        mock_module.crawl_notices.return_value = 5
+
+        with patch.dict("sys.modules", {"crawling_noti": mock_module}):
+            from main import trigger_crawl
+            result = trigger_crawl(page_count=8)
+
+        assert "page_count" in result
+
+    def test_trigger_crawl_result_is_dict(self):
+        mock_module = MagicMock()
+        mock_module.crawl_notices.return_value = 2
+
+        with patch.dict("sys.modules", {"crawling_noti": mock_module}):
+            from main import trigger_crawl
+            result = trigger_crawl(page_count=4)
+
+        assert isinstance(result, dict)
+
+    def test_trigger_crawl_result_has_exactly_two_keys(self):
+        mock_module = MagicMock()
+        mock_module.crawl_notices.return_value = 15
+
+        with patch.dict("sys.modules", {"crawling_noti": mock_module}):
+            from main import trigger_crawl
+            result = trigger_crawl(page_count=7)
+
+        assert len(result) == 2
+
+    def test_trigger_crawl_saved_value_matches_crawl_return(self):
+        mock_module = MagicMock()
+        mock_module.crawl_notices.return_value = 42
+
+        with patch.dict("sys.modules", {"crawling_noti": mock_module}):
+            from main import trigger_crawl
+            result = trigger_crawl(page_count=11)
+
+        assert result["saved"] == 42
+
+    def test_trigger_crawl_crawl_returns_negative_value(self):
+        mock_module = MagicMock()
+        mock_module.crawl_notices.return_value = -1
+
+        with patch.dict("sys.modules", {"crawling_noti": mock_module}):
+            from main import trigger_crawl
+            result = trigger_crawl(page_count=5)
+
+        assert result["saved"] == -1
+
+    def test_trigger_crawl_crawl_returns_none(self):
+        mock_module = MagicMock()
+        mock_module.crawl_notices.return_value = None
+
+        with patch.dict("sys.modules", {"crawling_noti": mock_module}):
+            from main import trigger_crawl
+            result = trigger_crawl(page_count=5)
+
+        assert result["saved"] is None
+        assert result["page_count"] == 5
+
+    def test_trigger_crawl_crawl_returns_large_number(self):
+        mock_module = MagicMock()
+        mock_module.crawl_notices.return_value = 999999
+
+        with patch.dict("sys.modules", {"crawling_noti": mock_module}):
+            from main import trigger_crawl
+            result = trigger_crawl(page_count=20)
+
+        assert result["saved"] == 999999
+
+    def test_trigger_crawl_page_count_preserved_in_response(self):
+        mock_module = MagicMock()
+        mock_module.crawl_notices.return_value = 0
+
+        with patch.dict("sys.modules", {"crawling_noti": mock_module}):
+            from main import trigger_crawl
+            for pc in [1, 5, 10, 15, 20]:
+                result = trigger_crawl(page_count=pc)
+                assert result["page_count"] == pc
