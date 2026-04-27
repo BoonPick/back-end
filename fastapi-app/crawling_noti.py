@@ -140,7 +140,7 @@ def crawl_notices(page_count: int = 1):
                     extracted_category, title = extract_category_from_title(raw_title)
                     category = extracted_category or n.get("category", "") or ""
 
-                    notice_url = f"{page_url}?pkId={pkId}"
+                    notice_url = f"{page_url}?bbsConfigFk={bbs_config_fk}&pkId={pkId}"
 
                     # 이미 DB에 있으면 건너뜀
                     if notice_exists(cursor, notice_url):

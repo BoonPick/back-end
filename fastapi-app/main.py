@@ -406,7 +406,7 @@ def trigger_crawl(page_count: int = Query(5, ge=1, le=20)):
 
 
 @app.post("/api/admin/crawl/jobs")
-def trigger_job_crawl(page_count: int = Query(3, ge=1, le=10)):
+def trigger_job_crawl(page_count: int = Query(3, ge=1, le=20)):
     saved = crawling_job.crawl_jobs(page_count=page_count)
     return {"saved": saved, "page_count": page_count}
 
