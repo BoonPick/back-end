@@ -187,7 +187,7 @@ def crawl_notices(page_count: int = 1):
 
                     posted_at = parse_notice_date(n) or parse_notice_date(detail_data)
                     save_notice(cursor, title, source_name, category,
-                                list_url, raw_content, posted_at=posted_at)
+                                notice_url, raw_content, posted_at=posted_at)
                     conn.commit()
                     saved_count += 1
                     date_label = posted_at.strftime("%Y-%m-%d") if posted_at else "날짜 미확인(NOW 사용)"
