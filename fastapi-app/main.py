@@ -92,6 +92,11 @@ class BoardItem(BaseModel):
     sourceUrl: str
     date: str
     keywords: List[str] = []
+    employment: Optional[str] = None
+    workType: Optional[str] = None
+    duty: Optional[str] = None
+    deadline: Optional[str] = None
+    isAlwaysOpen: Optional[bool] = None
 
 
 class Recommendation(BaseModel):
@@ -267,6 +272,9 @@ def _row_to_board_item(row: dict) -> BoardItem:
     created = row.get("created_at")
     date_str = created.strftime("%Y-%m-%d") if created else ""
 
+    deadline = row.get("deadline")
+    deadline_str = deadline.strftime("%Y-%m-%d") if deadline else None
+
     return BoardItem(
         id=str(row["id"]),
         category=category,
@@ -276,6 +284,11 @@ def _row_to_board_item(row: dict) -> BoardItem:
         source=source_name,
         sourceUrl=row.get("url") or "",
         date=date_str,
+        employment=row.get("employment"),
+        workType=row.get("work_type"),
+        duty=row.get("duty"),
+        deadline=deadline_str,
+        isAlwaysOpen=bool(row.get("is_always_open")) if row.get("is_always_open") is not None else None,
     )
 
 
@@ -313,7 +326,12 @@ def get_board_items(
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         offset = (page - 1) * size
 
-        query = f"SELECT c.* FROM contents c {where} ORDER BY c.created_at DESC LIMIT %s OFFSET %s"
+        query = (
+            f"SELECT c.*, jp.employment, jp.work_type, jp.duty, jp.deadline, jp.is_always_open "
+            f"FROM contents c "
+            f"LEFT JOIN job_postings jp ON jp.content_id = c.id "
+            f"{where} ORDER BY c.created_at DESC LIMIT %s OFFSET %s"
+        )
         params.extend([size, offset])
 
         cursor.execute(query, params)
@@ -330,7 +348,12 @@ def get_board_item(item_id: int):
     conn = get_db()
     try:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM contents WHERE id = %s", (item_id,))
+        cursor.execute(
+            "SELECT c.*, jp.employment, jp.work_type, jp.duty, jp.deadline, jp.is_always_open "
+            "FROM contents c LEFT JOIN job_postings jp ON jp.content_id = c.id "
+            "WHERE c.id = %s",
+            (item_id,),
+        )
         row = cursor.fetchone()
         cursor.close()
         if not row:
