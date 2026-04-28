@@ -345,21 +345,32 @@ def get_board_items(
             conditions.append("c.title LIKE %s")
             params.append(f"%{search}%")
 
-        # duty filter (job_postings only) — 콤마 구분 다중 값은 OR (IN)으로 처리
+        # duty filter — 컬럼 값이 "A, B"처럼 콤마 결합일 수 있으므로 토큰 단위 LIKE로 매칭.
+        # 양 끝에 콤마를 붙여 ",A," 같은 정확한 토큰만 잡도록 함 (부분 substring 오매칭 방지).
         if duty:
             duty_list = [d.strip() for d in duty.split(",") if d.strip()]
             if duty_list:
-                placeholders = ",".join(["%s"] * len(duty_list))
-                conditions.append(f"jp.duty IN ({placeholders})")
-                params.extend(duty_list)
+                clauses = []
+                for d in duty_list:
+                    clauses.append(
+                        "CONCAT(',', REPLACE(jp.duty, ' ', ''), ',') "
+                        "LIKE CONCAT('%,', %s, ',%')"
+                    )
+                    params.append(d)
+                conditions.append(f"({' OR '.join(clauses)})")
 
-        # work_type filter (job_postings only) — 콤마 구분 다중 값은 OR (IN)으로 처리
+        # work_type filter — 다중 값 저장 가능하므로 동일하게 토큰 LIKE 매칭.
         if work_type:
             wt_list = [w.strip() for w in work_type.split(",") if w.strip()]
             if wt_list:
-                placeholders = ",".join(["%s"] * len(wt_list))
-                conditions.append(f"jp.work_type IN ({placeholders})")
-                params.extend(wt_list)
+                clauses = []
+                for w in wt_list:
+                    clauses.append(
+                        "CONCAT(',', REPLACE(jp.work_type, ' ', ''), ',') "
+                        "LIKE CONCAT('%,', %s, ',%')"
+                    )
+                    params.append(w)
+                conditions.append(f"({' OR '.join(clauses)})")
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         offset = (page - 1) * size
