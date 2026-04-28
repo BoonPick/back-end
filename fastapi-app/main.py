@@ -7,14 +7,26 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from typing import List, Optional
+import logging
 import os
-from datetime import datetime
+import random
+import string
+from datetime import datetime, timedelta
 
 import mysql.connector
 
 from llm import get_llm_recommendation
 import crawling_noti
 import crawling_job
+import mailer
+
+logger = logging.getLogger(__name__)
+
+# ── Email verification 상수 ──────────────────────────────────────
+CODE_LENGTH = 6
+CODE_TTL_SECONDS = 600          # 10분
+RESEND_COOLDOWN_SECONDS = 60    # 직전 발송 후 60초간 재발송 차단
+MAX_VERIFY_ATTEMPTS = 5
 
 
 # ── DB ───────────────────────────────────────────────────────────
@@ -68,11 +80,21 @@ class SignupRequest(BaseModel):
     email: str
     password: str
     name: str
+    verification_code: str
 
 
 class LoginRequest(BaseModel):
     email: str
     password: str
+
+
+class SendCodeRequest(BaseModel):
+    email: str
+
+
+class SendCodeResponse(BaseModel):
+    ok: bool
+    expires_in: int  # seconds
 
 
 class UserResponse(BaseModel):
@@ -130,20 +152,123 @@ def _user_to_response(user_row: dict) -> UserResponse:
     )
 
 
-@app.post("/api/auth/signup", response_model=UserResponse)
-def signup(req: SignupRequest):
+def _generate_code() -> str:
+    return "".join(random.choices(string.digits, k=CODE_LENGTH))
+
+
+@app.post("/api/auth/send-code", response_model=SendCodeResponse)
+def send_code(req: SendCodeRequest):
+    """
+    이메일 인증코드 발송. 회원가입 전용.
+    - 60초 재발송 쿨다운
+    - 이미 가입된 이메일은 모호한 메시지로 거부 (enumeration 방지)
+    """
+    if not req.email or "@" not in req.email:
+        raise HTTPException(400, "유효하지 않은 이메일입니다.")
+
     conn = get_db()
     try:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM users WHERE login_id = %s", (req.email,))
-        if cursor.fetchone():
-            raise HTTPException(400, "이미 가입된 이메일입니다.")
+
+        # 이미 가입된 이메일 차단
         cursor.execute(
-            "INSERT INTO users (login_id, user_name, password, email) VALUES (%s, %s, %s, %s)",
-            (req.email, req.name, req.password, req.email),
+            "SELECT id FROM users WHERE login_id = %s OR email = %s",
+            (req.email, req.email),
+        )
+        if cursor.fetchone():
+            raise HTTPException(400, "이미 가입되었거나 발송에 실패했습니다.")
+
+        # 쿨다운: 가장 최근 발송이 60초 이내면 차단
+        cursor.execute(
+            "SELECT created_at FROM email_verifications WHERE email = %s "
+            "ORDER BY id DESC LIMIT 1",
+            (req.email,),
+        )
+        last = cursor.fetchone()
+        if last and last["created_at"]:
+            elapsed = (datetime.now() - last["created_at"]).total_seconds()
+            if elapsed < RESEND_COOLDOWN_SECONDS:
+                wait = int(RESEND_COOLDOWN_SECONDS - elapsed)
+                raise HTTPException(429, f"{wait}초 후 다시 시도해주세요.")
+
+        # 코드 생성 + 저장
+        code = _generate_code()
+        expires_at = datetime.now() + timedelta(seconds=CODE_TTL_SECONDS)
+        cursor.execute(
+            "INSERT INTO email_verifications (email, code, expires_at, verified, attempts) "
+            "VALUES (%s, %s, %s, 0, 0)",
+            (req.email, code, expires_at),
         )
         conn.commit()
-        cursor.execute("SELECT * FROM users WHERE id = %s", (cursor.lastrowid,))
+        cursor.close()
+
+        # 메일 발송 (실패 시 5xx)
+        try:
+            mailer.send_verification_code(
+                req.email, code, CODE_TTL_SECONDS // 60
+            )
+        except Exception as e:
+            logger.exception("failed to send verification email: %s", e)
+            raise HTTPException(500, "메일 발송에 실패했습니다. 잠시 후 다시 시도해주세요.")
+
+        return SendCodeResponse(ok=True, expires_in=CODE_TTL_SECONDS)
+    finally:
+        conn.close()
+
+
+@app.post("/api/auth/signup", response_model=UserResponse)
+def signup(req: SignupRequest):
+    if not req.verification_code:
+        raise HTTPException(400, "인증코드를 입력해주세요.")
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor(dictionary=True)
+
+        # 이메일 중복 체크
+        cursor.execute(
+            "SELECT id FROM users WHERE login_id = %s OR email = %s",
+            (req.email, req.email),
+        )
+        if cursor.fetchone():
+            raise HTTPException(400, "이미 가입된 이메일입니다.")
+
+        # 가장 최근 인증 row 조회 후 검증
+        cursor.execute(
+            "SELECT id, code, expires_at, verified, attempts FROM email_verifications "
+            "WHERE email = %s ORDER BY id DESC LIMIT 1",
+            (req.email,),
+        )
+        verif = cursor.fetchone()
+        if not verif:
+            raise HTTPException(400, "인증코드를 먼저 발송해주세요.")
+        if verif["verified"]:
+            raise HTTPException(400, "이미 사용된 인증코드입니다. 코드를 다시 받아주세요.")
+        if verif["attempts"] >= MAX_VERIFY_ATTEMPTS:
+            raise HTTPException(400, "시도 횟수가 초과되었습니다. 코드를 다시 받아주세요.")
+        if verif["expires_at"] and verif["expires_at"] < datetime.now():
+            raise HTTPException(400, "인증코드가 만료되었습니다. 코드를 다시 받아주세요.")
+        if verif["code"] != req.verification_code:
+            cursor.execute(
+                "UPDATE email_verifications SET attempts = attempts + 1 WHERE id = %s",
+                (verif["id"],),
+            )
+            conn.commit()
+            raise HTTPException(400, "인증코드가 일치하지 않습니다.")
+
+        # 통과 → user 생성, verification 폐기
+        cursor.execute(
+            "INSERT INTO users (login_id, user_name, password, email) "
+            "VALUES (%s, %s, %s, %s)",
+            (req.email, req.name, req.password, req.email),
+        )
+        user_id = cursor.lastrowid
+        cursor.execute(
+            "UPDATE email_verifications SET verified = 1 WHERE id = %s",
+            (verif["id"],),
+        )
+        conn.commit()
+        cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
         user = cursor.fetchone()
         cursor.close()
         return _user_to_response(user)

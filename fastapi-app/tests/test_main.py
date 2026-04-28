@@ -118,16 +118,32 @@ class TestGetBoardItem:
 
 # ── /api/auth ────────────────────────────────────────────────────
 
+from datetime import datetime, timedelta
+
+
+def _verif_row(code="123456", verified=0, attempts=0, expires_in_seconds=600, row_id=10):
+    return {
+        "id": row_id,
+        "code": code,
+        "expires_at": datetime.now() + timedelta(seconds=expires_in_seconds),
+        "verified": verified,
+        "attempts": attempts,
+    }
+
+
 class TestSignup:
-    def test_creates_user(self):
+    def test_creates_user_with_valid_code(self):
+        verif = _verif_row()
         user_row = {"id": 1, "login_id": "test@test.com", "user_name": "홍길동", "email": "test@test.com"}
-        cursor = _make_cursor(fetchone_val=None)
-        cursor.fetchone.side_effect = [None, user_row]
+        cursor = _make_cursor()
+        # 1) 중복 체크 (None) → 2) verification 조회 → 3) user fetch
+        cursor.fetchone.side_effect = [None, verif, user_row]
         with patch("main.get_db", return_value=_make_conn(cursor)):
             resp = client.post("/api/auth/signup", json={
                 "email": "test@test.com",
                 "password": "pw",
                 "name": "홍길동",
+                "verification_code": "123456",
             })
         assert resp.status_code == 200
         assert resp.json()["email"] == "test@test.com"
@@ -140,8 +156,137 @@ class TestSignup:
                 "email": "dup@test.com",
                 "password": "pw",
                 "name": "홍길동",
+                "verification_code": "123456",
             })
         assert resp.status_code == 400
+
+    def test_missing_code_returns_400(self):
+        resp = client.post("/api/auth/signup", json={
+            "email": "test@test.com",
+            "password": "pw",
+            "name": "홍길동",
+            "verification_code": "",
+        })
+        assert resp.status_code == 400
+        assert "인증코드" in resp.json()["detail"]
+
+    def test_no_verification_record_returns_400(self):
+        cursor = _make_cursor()
+        cursor.fetchone.side_effect = [None, None]  # 중복 X, verification 없음
+        with patch("main.get_db", return_value=_make_conn(cursor)):
+            resp = client.post("/api/auth/signup", json={
+                "email": "new@test.com",
+                "password": "pw",
+                "name": "홍길동",
+                "verification_code": "123456",
+            })
+        assert resp.status_code == 400
+        assert "먼저 발송" in resp.json()["detail"]
+
+    def test_wrong_code_returns_400(self):
+        verif = _verif_row(code="999999")
+        cursor = _make_cursor()
+        cursor.fetchone.side_effect = [None, verif]
+        with patch("main.get_db", return_value=_make_conn(cursor)):
+            resp = client.post("/api/auth/signup", json={
+                "email": "new@test.com",
+                "password": "pw",
+                "name": "홍길동",
+                "verification_code": "123456",
+            })
+        assert resp.status_code == 400
+        assert "일치하지 않습니다" in resp.json()["detail"]
+
+    def test_expired_code_returns_400(self):
+        verif = _verif_row(expires_in_seconds=-60)  # 이미 만료
+        cursor = _make_cursor()
+        cursor.fetchone.side_effect = [None, verif]
+        with patch("main.get_db", return_value=_make_conn(cursor)):
+            resp = client.post("/api/auth/signup", json={
+                "email": "new@test.com",
+                "password": "pw",
+                "name": "홍길동",
+                "verification_code": "123456",
+            })
+        assert resp.status_code == 400
+        assert "만료" in resp.json()["detail"]
+
+    def test_already_verified_returns_400(self):
+        verif = _verif_row(verified=1)
+        cursor = _make_cursor()
+        cursor.fetchone.side_effect = [None, verif]
+        with patch("main.get_db", return_value=_make_conn(cursor)):
+            resp = client.post("/api/auth/signup", json={
+                "email": "new@test.com",
+                "password": "pw",
+                "name": "홍길동",
+                "verification_code": "123456",
+            })
+        assert resp.status_code == 400
+        assert "사용된" in resp.json()["detail"]
+
+    def test_too_many_attempts_returns_400(self):
+        verif = _verif_row(attempts=5)
+        cursor = _make_cursor()
+        cursor.fetchone.side_effect = [None, verif]
+        with patch("main.get_db", return_value=_make_conn(cursor)):
+            resp = client.post("/api/auth/signup", json={
+                "email": "new@test.com",
+                "password": "pw",
+                "name": "홍길동",
+                "verification_code": "123456",
+            })
+        assert resp.status_code == 400
+        assert "초과" in resp.json()["detail"]
+
+
+class TestSendCode:
+    def test_sends_code_for_new_email(self):
+        cursor = _make_cursor()
+        # 1) users 중복 체크 (None) → 2) 직전 verification (None)
+        cursor.fetchone.side_effect = [None, None]
+        with patch("main.get_db", return_value=_make_conn(cursor)), \
+             patch("main.mailer.send_verification_code") as mock_send:
+            resp = client.post("/api/auth/send-code", json={"email": "new@test.com"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["ok"] is True
+        assert body["expires_in"] == 600
+        mock_send.assert_called_once()
+        # 호출 인자: (to_email, code, minutes)
+        args = mock_send.call_args.args
+        assert args[0] == "new@test.com"
+        assert len(args[1]) == 6 and args[1].isdigit()
+
+    def test_invalid_email_returns_400(self):
+        resp = client.post("/api/auth/send-code", json={"email": "not-an-email"})
+        assert resp.status_code == 400
+
+    def test_already_registered_email_returns_400(self):
+        existing = {"id": 1}
+        cursor = _make_cursor(fetchone_val=existing)
+        with patch("main.get_db", return_value=_make_conn(cursor)):
+            resp = client.post("/api/auth/send-code", json={"email": "exists@test.com"})
+        assert resp.status_code == 400
+
+    def test_resend_within_cooldown_returns_429(self):
+        cursor = _make_cursor()
+        # 1) users (None) → 2) 직전 verification: 30초 전 발송
+        cursor.fetchone.side_effect = [
+            None,
+            {"created_at": datetime.now() - timedelta(seconds=30)},
+        ]
+        with patch("main.get_db", return_value=_make_conn(cursor)):
+            resp = client.post("/api/auth/send-code", json={"email": "new@test.com"})
+        assert resp.status_code == 429
+
+    def test_smtp_failure_returns_500(self):
+        cursor = _make_cursor()
+        cursor.fetchone.side_effect = [None, None]
+        with patch("main.get_db", return_value=_make_conn(cursor)), \
+             patch("main.mailer.send_verification_code", side_effect=RuntimeError("smtp down")):
+            resp = client.post("/api/auth/send-code", json={"email": "new@test.com"})
+        assert resp.status_code == 500
 
 
 # ── /api/admin/keywords ──────────────────────────────────────────
