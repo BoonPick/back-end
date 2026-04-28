@@ -18,11 +18,13 @@ pipeline {
         TARGET_USER   = "sogang018@SGVDI.local"
         SSH_CRED_ID   = "team"
 
-        DB_HOST     = credentials('BOONPICK_DB_HOST')
-        DB_USER     = credentials('BOONPICK_DB_USER')
-        DB_PASSWORD = credentials('BOONPICK_DB_PASSWORD')
-        SAINT_ID    = credentials('BOONPICK_SAINT_ID')
-        SAINT_PW    = credentials('BOONPICK_SAINT_PW')
+        DB_HOST       = credentials('BOONPICK_DB_HOST')
+        DB_USER       = credentials('BOONPICK_DB_USER')
+        DB_PASSWORD   = credentials('BOONPICK_DB_PASSWORD')
+        SAINT_ID      = credentials('BOONPICK_SAINT_ID')
+        SAINT_PW      = credentials('BOONPICK_SAINT_PW')
+        SMTP_USER     = credentials('BOONPICK_SMTP_USER')
+        SMTP_PASSWORD = credentials('BOONPICK_SMTP_PASSWORD')
     }
 
     stages {
@@ -144,6 +146,12 @@ pipeline {
                                     -e DB_PASSWORD='${env.DB_PASSWORD}' \\
                                     -e SAINT_ID='${env.SAINT_ID}' \\
                                     -e SAINT_PW='${env.SAINT_PW}' \\
+                                    -e SMTP_HOST=smtp.gmail.com \\
+                                    -e SMTP_PORT=587 \\
+                                    -e SMTP_USER='${env.SMTP_USER}' \\
+                                    -e SMTP_PASSWORD='${env.SMTP_PASSWORD}' \\
+                                    -e MAIL_FROM_NAME=BoonPick \\
+                                    -e MAIL_FROM_EMAIL='${env.SMTP_USER}' \\
                                     ${IMAGE_NAME}:${env.IMAGE_TAG} && \\
                                 docker image prune -f
                             "
