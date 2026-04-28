@@ -147,6 +147,7 @@ class NotificationSettings(BaseModel):
     categories: List[str]              # 'announcement' | 'scholarship' | 'job' (1개 이상)
     duties: List[str] = []             # 채용 한정 OR 매칭
     work_types: List[str] = []         # 채용 한정 OR 매칭
+    search: str = ""                   # 제목 LIKE 검색
     keywords: List[str] = []           # 선택, 매칭 점수 계산용
 
 
@@ -732,6 +733,7 @@ def _settings_row_to_model(row: dict) -> NotificationSettings:
         categories=split(row.get("categories")),
         duties=split(row.get("duties")),
         work_types=split(row.get("work_types")),
+        search=row.get("search_query") or "",
         keywords=split(row.get("keywords")),
     )
 
@@ -745,7 +747,7 @@ def get_notification_settings(user_id: int):
     try:
         cursor = conn.cursor(dictionary=True)
         cursor.execute(
-            "SELECT categories, duties, work_types, keywords "
+            "SELECT categories, duties, work_types, search_query, keywords "
             "FROM notification_settings WHERE user_id = %s",
             (user_id,),
         )
@@ -769,12 +771,15 @@ def upsert_notification_settings(user_id: int, req: NotificationSettings):
         raise HTTPException(400, f"허용되지 않은 카테고리: {invalid}")
 
     has_job = "job" in req.categories
-    duties = req.duties if has_job else []
-    work_types = req.work_types if has_job else []
+    has_all_or_job = has_job  # 카테고리 단일 모델: job 포함이면 직무/고용형태 의미 있음
+    duties = req.duties if has_all_or_job else []
+    work_types = req.work_types if has_all_or_job else []
+    search = (req.search or "").strip()
 
     cat_str = ",".join(req.categories)
     duty_str = ",".join(duties) if duties else None
     wt_str = ",".join(work_types) if work_types else None
+    search_str = search or None
     kw_str = ",".join(req.keywords) if req.keywords else None
 
     conn = get_db()
@@ -783,14 +788,15 @@ def upsert_notification_settings(user_id: int, req: NotificationSettings):
         # 존재 여부 확인 후 UPSERT (last_notified_at은 신규일 때만 NOW로 설정)
         cursor.execute(
             "INSERT INTO notification_settings "
-            "(user_id, categories, duties, work_types, keywords, last_notified_at) "
-            "VALUES (%s, %s, %s, %s, %s, NOW()) "
+            "(user_id, categories, duties, work_types, search_query, keywords, last_notified_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, NOW()) "
             "ON DUPLICATE KEY UPDATE "
-            "  categories = VALUES(categories), "
-            "  duties     = VALUES(duties), "
-            "  work_types = VALUES(work_types), "
-            "  keywords   = VALUES(keywords)",
-            (user_id, cat_str, duty_str, wt_str, kw_str),
+            "  categories   = VALUES(categories), "
+            "  duties       = VALUES(duties), "
+            "  work_types   = VALUES(work_types), "
+            "  search_query = VALUES(search_query), "
+            "  keywords     = VALUES(keywords)",
+            (user_id, cat_str, duty_str, wt_str, search_str, kw_str),
         )
         conn.commit()
         cursor.close()
@@ -798,6 +804,7 @@ def upsert_notification_settings(user_id: int, req: NotificationSettings):
             categories=req.categories,
             duties=duties,
             work_types=work_types,
+            search=search,
             keywords=req.keywords,
         )
     finally:

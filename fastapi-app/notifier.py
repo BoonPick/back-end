@@ -67,27 +67,39 @@ def _summary(raw: str | None, n: int = 200) -> str:
     return raw[:n] + ("..." if len(raw) > n else "")
 
 
-def _fetch_new_items(cursor, last_notified_at, categories: list[str]):
-    """last_notified_at 이후 created_at의 contents를 카테고리에 맞게 조회."""
+def _fetch_new_items(
+    cursor,
+    last_notified_at,
+    categories: list[str],
+    search: str = "",
+):
+    """last_notified_at 이후 created_at의 contents를 카테고리/검색어에 맞게 조회."""
     sources = [
         s for s, c in SOURCE_TO_CATEGORY.items() if c in categories
     ]
     if not sources:
         return []
-    placeholders = ",".join(["%s"] * len(sources))
+
+    where = ["c.source_name IN ({0})".format(",".join(["%s"] * len(sources))), "c.created_at > %s"]
+    params: list = [*sources, last_notified_at]
+
+    if search:
+        where.append("c.title LIKE %s")
+        params.append(f"%{search}%")
+
     cursor.execute(
         f"""
         SELECT c.id, c.title, c.source_name, c.url, c.raw_content, c.created_at,
-               jp.duty, jp.work_type
+               MAX(jp.duty)      AS duty,
+               MAX(jp.work_type) AS work_type
         FROM contents c
         LEFT JOIN job_postings jp ON jp.content_id = c.id
-        WHERE c.source_name IN ({placeholders})
-          AND c.created_at > %s
+        WHERE {' AND '.join(where)}
         GROUP BY c.id
         ORDER BY c.created_at DESC
         LIMIT 200
         """,
-        (*sources, last_notified_at),
+        params,
     )
     return cursor.fetchall()
 
@@ -158,7 +170,7 @@ def notify_new_items_for_all_users() -> int:
         cursor.execute(
             """
             SELECT ns.user_id, ns.categories, ns.duties, ns.work_types,
-                   ns.keywords, ns.last_notified_at,
+                   ns.search_query, ns.keywords, ns.last_notified_at,
                    u.email
             FROM notification_settings ns
             INNER JOIN users u ON u.id = ns.user_id
@@ -172,9 +184,12 @@ def notify_new_items_for_all_users() -> int:
             duties = _split(u["duties"])
             work_types = _split(u["work_types"])
             keywords = _split(u["keywords"])
+            search = (u.get("search_query") or "").strip()
 
             try:
-                rows = _fetch_new_items(cursor, u["last_notified_at"], categories)
+                rows = _fetch_new_items(
+                    cursor, u["last_notified_at"], categories, search
+                )
                 items = _build_notification_payload(rows, duties, work_types, keywords)
 
                 if items:
