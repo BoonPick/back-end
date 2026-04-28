@@ -31,11 +31,20 @@ def job_exists(cursor, url: str) -> bool:
 
 
 def save_content(cursor, title: str, url: str, raw_content: str, posted_at=None) -> int:
+    """
+    contents UPSERT — `url` UNIQUE 제약 전제. 기존 row 있으면 갱신하고
+    `LAST_INSERT_ID(id)` 트릭으로 cursor.lastrowid가 항상 유효한 id를 반환하도록 함.
+    """
     if posted_at is not None:
         cursor.execute(
             """
             INSERT INTO contents (title, source_name, category, url, raw_content, created_at, updated_at)
             VALUES (%s, %s, %s, %s, %s, %s, NOW())
+            ON DUPLICATE KEY UPDATE
+                id = LAST_INSERT_ID(id),
+                title = VALUES(title),
+                raw_content = VALUES(raw_content),
+                updated_at = NOW()
             """,
             (title, SOURCE_NAME, "job", url, raw_content, posted_at),
         )
@@ -44,6 +53,11 @@ def save_content(cursor, title: str, url: str, raw_content: str, posted_at=None)
             """
             INSERT INTO contents (title, source_name, category, url, raw_content, created_at, updated_at)
             VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
+            ON DUPLICATE KEY UPDATE
+                id = LAST_INSERT_ID(id),
+                title = VALUES(title),
+                raw_content = VALUES(raw_content),
+                updated_at = NOW()
             """,
             (title, SOURCE_NAME, "job", url, raw_content),
         )
@@ -52,10 +66,17 @@ def save_content(cursor, title: str, url: str, raw_content: str, posted_at=None)
 
 def save_job_posting(cursor, content_id: int, employment: str, work_type: str,
                      duty: str, deadline, is_always_open: int):
+    """job_postings UPSERT — `content_id` UNIQUE 제약 전제."""
     cursor.execute(
         """
         INSERT INTO job_postings (content_id, employment, work_type, duty, deadline, is_always_open)
         VALUES (%s, %s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            employment = VALUES(employment),
+            work_type = VALUES(work_type),
+            duty = VALUES(duty),
+            deadline = VALUES(deadline),
+            is_always_open = VALUES(is_always_open)
         """,
         (content_id, employment, work_type, duty, deadline, is_always_open),
     )
@@ -230,8 +251,9 @@ def _extract_rcdx_list(html: str) -> list[str]:
 
 
 def _collect_rcdx_all_pages(page, page_count: int) -> list[str]:
-    """여러 페이지에서 rcdx 목록 수집."""
-    all_rcdx = []
+    """여러 페이지에서 rcdx 목록 수집 (페이지 간 중복 제거)."""
+    all_rcdx: list[str] = []
+    seen: set[str] = set()
 
     for page_num in range(1, page_count + 1):
         print(f"  목록 페이지 {page_num} 수집 중...")
@@ -244,8 +266,17 @@ def _collect_rcdx_all_pages(page, page_count: int) -> list[str]:
             print(f"  페이지 {page_num}: rcdx 없음, 종료")
             break
 
-        all_rcdx.extend(rcdx_list)
-        print(f"  {len(rcdx_list)}개 공고 발견 (누적 {len(all_rcdx)}개)")
+        new_count = 0
+        for rcdx in rcdx_list:
+            if rcdx in seen:
+                continue
+            seen.add(rcdx)
+            all_rcdx.append(rcdx)
+            new_count += 1
+
+        print(
+            f"  {len(rcdx_list)}개 공고 발견 (신규 {new_count}, 누적 {len(all_rcdx)}개)"
+        )
 
     return all_rcdx
 

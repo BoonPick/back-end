@@ -344,11 +344,20 @@ def get_board_items(
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         offset = (page - 1) * size
 
+        # GROUP BY c.id + MAX 집계: job_postings에 같은 content_id로
+        # 중복 row가 있더라도 board 결과가 중복 노출되지 않도록 방어.
         query = (
-            f"SELECT c.*, jp.employment, jp.work_type, jp.duty, jp.deadline, jp.is_always_open "
+            f"SELECT c.*, "
+            f"MAX(jp.employment)     AS employment, "
+            f"MAX(jp.work_type)      AS work_type, "
+            f"MAX(jp.duty)           AS duty, "
+            f"MAX(jp.deadline)       AS deadline, "
+            f"MAX(jp.is_always_open) AS is_always_open "
             f"FROM contents c "
             f"LEFT JOIN job_postings jp ON jp.content_id = c.id "
-            f"{where} ORDER BY c.created_at DESC LIMIT %s OFFSET %s"
+            f"{where} "
+            f"GROUP BY c.id "
+            f"ORDER BY c.created_at DESC LIMIT %s OFFSET %s"
         )
         params.extend([size, offset])
 
@@ -367,9 +376,15 @@ def get_board_item(item_id: int):
     try:
         cursor = conn.cursor(dictionary=True)
         cursor.execute(
-            "SELECT c.*, jp.employment, jp.work_type, jp.duty, jp.deadline, jp.is_always_open "
+            "SELECT c.*, "
+            "MAX(jp.employment)     AS employment, "
+            "MAX(jp.work_type)      AS work_type, "
+            "MAX(jp.duty)           AS duty, "
+            "MAX(jp.deadline)       AS deadline, "
+            "MAX(jp.is_always_open) AS is_always_open "
             "FROM contents c LEFT JOIN job_postings jp ON jp.content_id = c.id "
-            "WHERE c.id = %s",
+            "WHERE c.id = %s "
+            "GROUP BY c.id",
             (item_id,),
         )
         row = cursor.fetchone()

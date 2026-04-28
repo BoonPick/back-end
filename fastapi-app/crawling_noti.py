@@ -76,12 +76,20 @@ def parse_notice_date(notice: dict):
 
 def save_notice(cursor, title: str, source_name: str, category: str,
                 url: str, raw_content: str, posted_at=None):
-    """공지를 DB에 저장 (본문 + PDF 텍스트 모두 raw_content에 포함)"""
+    """
+    공지를 DB에 저장 (본문 + PDF 텍스트 모두 raw_content에 포함).
+    `contents.url` UNIQUE 제약 전제 — 동일 url 재크롤링 시 본문/제목/카테고리만 갱신.
+    """
     if posted_at is not None:
         cursor.execute(
             """
             INSERT INTO contents (title, source_name, category, url, raw_content, created_at, updated_at)
             VALUES (%s, %s, %s, %s, %s, %s, NOW())
+            ON DUPLICATE KEY UPDATE
+                title = VALUES(title),
+                category = VALUES(category),
+                raw_content = VALUES(raw_content),
+                updated_at = NOW()
             """,
             (title, source_name, category, url, raw_content, posted_at),
         )
@@ -90,6 +98,11 @@ def save_notice(cursor, title: str, source_name: str, category: str,
             """
             INSERT INTO contents (title, source_name, category, url, raw_content, created_at, updated_at)
             VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
+            ON DUPLICATE KEY UPDATE
+                title = VALUES(title),
+                category = VALUES(category),
+                raw_content = VALUES(raw_content),
+                updated_at = NOW()
             """,
             (title, source_name, category, url, raw_content),
         )
