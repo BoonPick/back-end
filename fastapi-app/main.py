@@ -345,15 +345,21 @@ def get_board_items(
             conditions.append("c.title LIKE %s")
             params.append(f"%{search}%")
 
-        # duty filter (job_postings only)
+        # duty filter (job_postings only) — 콤마 구분 다중 값은 OR (IN)으로 처리
         if duty:
-            conditions.append("jp.duty = %s")
-            params.append(duty)
+            duty_list = [d.strip() for d in duty.split(",") if d.strip()]
+            if duty_list:
+                placeholders = ",".join(["%s"] * len(duty_list))
+                conditions.append(f"jp.duty IN ({placeholders})")
+                params.extend(duty_list)
 
-        # work_type filter (job_postings only)
+        # work_type filter (job_postings only) — 콤마 구분 다중 값은 OR (IN)으로 처리
         if work_type:
-            conditions.append("jp.work_type = %s")
-            params.append(work_type)
+            wt_list = [w.strip() for w in work_type.split(",") if w.strip()]
+            if wt_list:
+                placeholders = ",".join(["%s"] * len(wt_list))
+                conditions.append(f"jp.work_type IN ({placeholders})")
+                params.extend(wt_list)
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         offset = (page - 1) * size
