@@ -106,6 +106,20 @@ class Recommendation(BaseModel):
     preparationTips: List[str]
 
 
+class DedupGroupSample(BaseModel):
+    title: str
+    work_type: Optional[str] = None
+    count: int
+    ids: str  # GROUP_CONCAT 결과 ("3,7,15")
+
+
+class DedupJobsResponse(BaseModel):
+    dry_run: bool
+    groups: int            # 중복 그룹 수
+    affected_rows: int     # 삭제 대상(또는 삭제됨) row 수
+    samples: List[DedupGroupSample]
+
+
 # ── Auth (users: id, login_id, user_name, password, email) ──────
 
 def _user_to_response(user_row: dict) -> UserResponse:
@@ -442,6 +456,108 @@ def trigger_crawl(page_count: int = Query(5, ge=1, le=20)):
 def trigger_job_crawl(page_count: int = Query(3, ge=1, le=20)):
     saved = crawling_job.crawl_jobs(page_count=page_count)
     return {"saved": saved, "page_count": page_count}
+
+
+# ── Admin / Dedup ────────────────────────────────────────────────
+
+@app.post("/api/admin/dedup/jobs", response_model=DedupJobsResponse)
+def dedup_jobs_by_title_worktype(
+    dry_run: bool = Query(True, description="True면 영향 범위만 반환, False면 실제 삭제"),
+):
+    """
+    같은 (title, work_type) 조합으로 등록된 채용공고 중 가장 작은 id만 남기고 나머지 삭제.
+
+    - 대상: `source_name = 'sogang_job'`
+    - 기본은 `dry_run=True` — 영향 범위와 샘플(최대 20개)만 반환
+    - 실제 삭제: `?dry_run=false`
+    - 자식(`job_postings`) → 부모(`contents`) 순으로 삭제하며 단일 트랜잭션
+    - `work_type IS NULL`은 SQL NULL 비교 규칙상 별도 그룹으로 취급
+    """
+    conn = get_db()
+    try:
+        cursor = conn.cursor(dictionary=True)
+
+        # 1) 영향 범위 파악
+        cursor.execute(
+            """
+            SELECT c.title,
+                   jp.work_type,
+                   COUNT(*) AS cnt,
+                   GROUP_CONCAT(c.id ORDER BY c.id) AS ids
+            FROM contents c
+            INNER JOIN job_postings jp ON jp.content_id = c.id
+            WHERE c.source_name = 'sogang_job'
+            GROUP BY c.title, jp.work_type
+            HAVING COUNT(*) > 1
+            ORDER BY cnt DESC
+            """
+        )
+        groups = cursor.fetchall()
+        affected = sum(int(g["cnt"]) - 1 for g in groups)
+        samples = [
+            DedupGroupSample(
+                title=g["title"],
+                work_type=g["work_type"],
+                count=int(g["cnt"]),
+                ids=g["ids"],
+            )
+            for g in groups[:20]
+        ]
+
+        if dry_run or affected == 0:
+            cursor.close()
+            return DedupJobsResponse(
+                dry_run=True,
+                groups=len(groups),
+                affected_rows=affected,
+                samples=samples,
+            )
+
+        # 2) 실제 삭제 (트랜잭션)
+        try:
+            cursor.execute("DROP TEMPORARY TABLE IF EXISTS _dedup_targets")
+            cursor.execute(
+                """
+                CREATE TEMPORARY TABLE _dedup_targets AS
+                SELECT c.id
+                FROM contents c
+                INNER JOIN job_postings jp ON jp.content_id = c.id
+                INNER JOIN (
+                    SELECT c2.title, jp2.work_type, MIN(c2.id) AS keep_id
+                    FROM contents c2
+                    INNER JOIN job_postings jp2 ON jp2.content_id = c2.id
+                    WHERE c2.source_name = 'sogang_job'
+                    GROUP BY c2.title, jp2.work_type
+                    HAVING COUNT(*) > 1
+                ) k
+                  ON (k.title = c.title)
+                 AND (k.work_type <=> jp.work_type)
+                WHERE c.source_name = 'sogang_job'
+                  AND c.id <> k.keep_id
+                """
+            )
+            cursor.execute(
+                "DELETE FROM job_postings WHERE content_id IN (SELECT id FROM _dedup_targets)"
+            )
+            cursor.execute(
+                "DELETE FROM contents WHERE id IN (SELECT id FROM _dedup_targets)"
+            )
+            deleted = cursor.rowcount
+            cursor.execute("DROP TEMPORARY TABLE IF EXISTS _dedup_targets")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+        cursor.close()
+        return DedupJobsResponse(
+            dry_run=False,
+            groups=len(groups),
+            affected_rows=deleted,
+            samples=samples,
+        )
+    finally:
+        conn.close()
 
 
 # ── Legacy / Static ──────────────────────────────────────────────
