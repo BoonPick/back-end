@@ -19,6 +19,7 @@ from llm import get_llm_recommendation
 import crawling_noti
 import crawling_job
 import mailer
+import notifier
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,13 @@ class DedupJobsResponse(BaseModel):
     groups: int            # 중복 그룹 수
     affected_rows: int     # 삭제 대상(또는 삭제됨) row 수
     samples: List[DedupGroupSample]
+
+
+class NotificationSettings(BaseModel):
+    categories: List[str]              # 'announcement' | 'scholarship' | 'job' (1개 이상)
+    duties: List[str] = []             # 채용 한정 OR 매칭
+    work_types: List[str] = []         # 채용 한정 OR 매칭
+    keywords: List[str] = []           # 선택, 매칭 점수 계산용
 
 
 # ── Auth (users: id, login_id, user_name, password, email) ──────
@@ -600,6 +608,13 @@ def trigger_job_crawl(page_count: int = Query(3, ge=1, le=20)):
     return {"saved": saved, "page_count": page_count}
 
 
+@app.post("/api/admin/notify")
+def trigger_notification_batch():
+    """알림 배치 수동 트리거 (테스트용)."""
+    sent = notifier.notify_new_items_for_all_users()
+    return {"emails_sent": sent}
+
+
 # ── Admin / Dedup ────────────────────────────────────────────────
 
 @app.post("/api/admin/dedup/jobs", response_model=DedupJobsResponse)
@@ -697,6 +712,93 @@ def dedup_jobs_by_title_worktype(
             groups=len(groups),
             affected_rows=deleted,
             samples=samples,
+        )
+    finally:
+        conn.close()
+
+
+# ── Notification Settings ────────────────────────────────────────
+
+VALID_CATEGORIES = {"announcement", "scholarship", "job"}
+
+
+def _settings_row_to_model(row: dict) -> NotificationSettings:
+    def split(v: Optional[str]) -> List[str]:
+        if not v:
+            return []
+        return [s.strip() for s in v.split(",") if s.strip()]
+
+    return NotificationSettings(
+        categories=split(row.get("categories")),
+        duties=split(row.get("duties")),
+        work_types=split(row.get("work_types")),
+        keywords=split(row.get("keywords")),
+    )
+
+
+@app.get(
+    "/api/users/{user_id}/notification-settings",
+    response_model=Optional[NotificationSettings],
+)
+def get_notification_settings(user_id: int):
+    conn = get_db()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT categories, duties, work_types, keywords "
+            "FROM notification_settings WHERE user_id = %s",
+            (user_id,),
+        )
+        row = cursor.fetchone()
+        cursor.close()
+        return _settings_row_to_model(row) if row else None
+    finally:
+        conn.close()
+
+
+@app.put(
+    "/api/users/{user_id}/notification-settings",
+    response_model=NotificationSettings,
+)
+def upsert_notification_settings(user_id: int, req: NotificationSettings):
+    # 카테고리 검증: 1개 이상, 허용된 값만
+    if not req.categories:
+        raise HTTPException(400, "최소 1개 카테고리를 선택해주세요.")
+    invalid = [c for c in req.categories if c not in VALID_CATEGORIES]
+    if invalid:
+        raise HTTPException(400, f"허용되지 않은 카테고리: {invalid}")
+
+    has_job = "job" in req.categories
+    duties = req.duties if has_job else []
+    work_types = req.work_types if has_job else []
+
+    cat_str = ",".join(req.categories)
+    duty_str = ",".join(duties) if duties else None
+    wt_str = ",".join(work_types) if work_types else None
+    kw_str = ",".join(req.keywords) if req.keywords else None
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        # 존재 여부 확인 후 UPSERT (last_notified_at은 신규일 때만 NOW로 설정)
+        cursor.execute(
+            "INSERT INTO notification_settings "
+            "(user_id, categories, duties, work_types, keywords, last_notified_at) "
+            "VALUES (%s, %s, %s, %s, %s, NOW()) "
+            "ON DUPLICATE KEY UPDATE "
+            "  categories = VALUES(categories), "
+            "  duties     = VALUES(duties), "
+            "  work_types = VALUES(work_types), "
+            "  keywords   = VALUES(keywords)",
+            (user_id, cat_str, duty_str, wt_str, kw_str),
+        )
+        conn.commit()
+        cursor.close()
+        return NotificationSettings(
+            categories=req.categories,
+            duties=duties,
+            work_types=work_types,
+            keywords=req.keywords,
         )
     finally:
         conn.close()

@@ -14,6 +14,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 
 from crawling_noti import crawl_notices
 from crawling_job import crawl_jobs
+from notifier import notify_new_items_for_all_users
 
 KST = ZoneInfo("Asia/Seoul")
 
@@ -43,6 +44,15 @@ def job_posting_crawl():
         logger.error(f"채용 크롤링 오류: {e}")
 
 
+def notification_batch():
+    logger.info("알림 발송 배치 시작")
+    try:
+        sent = notify_new_items_for_all_users()
+        logger.info(f"알림 발송 완료 — {sent}명에게 메일 발송")
+    except Exception as e:
+        logger.error(f"알림 발송 오류: {e}")
+
+
 if __name__ == "__main__":
     scheduler = BlockingScheduler()
     scheduler.add_job(
@@ -61,8 +71,16 @@ if __name__ == "__main__":
         timezone=KST,
         id="daily_job_crawl",
     )
+    scheduler.add_job(
+        notification_batch,
+        trigger="cron",
+        hour=3,
+        minute=0,
+        timezone=KST,
+        id="daily_notification_batch",
+    )
 
-    logger.info("스케줄러 시작 — 매일 오전 2시 공지/채용 크롤링")
+    logger.info("스케줄러 시작 — 매일 02:15 공지 / 02:30 채용 / 03:00 알림 발송")
     try:
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):
