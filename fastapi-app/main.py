@@ -758,6 +758,21 @@ def get_notification_settings(user_id: int):
         conn.close()
 
 
+@app.post("/api/users/{user_id}/notify-now")
+def notify_now(user_id: int):
+    """저장된 알림 설정을 기준으로 만료 안 된 모든 매칭 항목을 즉시 메일로 발송."""
+    try:
+        sent = notifier.notify_now_for_user(user_id)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        logger.exception("notify_now failed: %s", e)
+        raise HTTPException(500, "알림 발송에 실패했습니다.")
+    return {"items_sent": sent}
+
+
 @app.put(
     "/api/users/{user_id}/notification-settings",
     response_model=NotificationSettings,
