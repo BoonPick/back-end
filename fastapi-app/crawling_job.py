@@ -30,6 +30,27 @@ def job_exists(cursor, url: str) -> bool:
     return cursor.fetchone() is not None
 
 
+def job_exists_by_title_worktype(cursor, title: str, work_type: str) -> bool:
+    """
+    동일 (title, work_type) 조합의 채용공고가 이미 sogang_job source에 존재하는지 확인.
+    `<=>`로 NULL-safe equal 비교. 사이트가 같은 공고를 새 rcdx로 재게시한 경우
+    URL 기반 체크로는 잡히지 않으므로 보강.
+    """
+    cursor.execute(
+        """
+        SELECT 1
+        FROM contents c
+        INNER JOIN job_postings jp ON jp.content_id = c.id
+        WHERE c.source_name = %s
+          AND c.title = %s
+          AND (jp.work_type <=> %s)
+        LIMIT 1
+        """,
+        (SOURCE_NAME, title, work_type),
+    )
+    return cursor.fetchone() is not None
+
+
 def save_content(cursor, title: str, url: str, raw_content: str, posted_at=None) -> int:
     """
     contents UPSERT — `url` UNIQUE 제약 전제. 기존 row 있으면 갱신하고
@@ -328,6 +349,16 @@ def crawl_jobs(page_count: int = 3) -> int:
 
                 if not fields["title"]:
                     print(f"  SKIP (제목 없음): rcdx={rcdx[:16]}...")
+                    continue
+
+                # 같은 채용공고가 다른 rcdx로 재게시된 경우 차단
+                if job_exists_by_title_worktype(
+                    cursor, fields["title"], fields["work_type"]
+                ):
+                    print(
+                        f"  SKIP (동일 title+work_type 존재): "
+                        f"{fields['title'][:40]} | {fields['work_type']}"
+                    )
                     continue
 
                 content_id = save_content(
