@@ -1,3 +1,11 @@
+import sys
+from unittest.mock import MagicMock
+
+# pdfplumber (and its broken cffi/cryptography chain) is not available in this
+# environment.  Stub it out before any source module is imported so that
+# collection does not crash.
+sys.modules.setdefault('pdfplumber', MagicMock())
+
 import pytest
 from datetime import datetime
 from crawling_noti import extract_category_from_title, parse_notice_date

@@ -1,5 +1,12 @@
-import pytest
+import sys
 from unittest.mock import MagicMock, patch
+
+# pdfplumber (and its broken cffi/cryptography chain) is not available in this
+# environment.  Stub it out before any source module is imported so that
+# collection does not crash.
+sys.modules.setdefault('pdfplumber', MagicMock())
+
+import pytest
 from fastapi.testclient import TestClient
 from datetime import datetime
 

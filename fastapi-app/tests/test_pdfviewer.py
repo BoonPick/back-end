@@ -1,3 +1,11 @@
+import sys
+from unittest.mock import MagicMock
+
+# pdfplumber (and its broken cffi/cryptography chain) is not available in this
+# environment.  Stub it out before any source module is imported so that
+# collection does not crash.
+sys.modules.setdefault('pdfplumber', MagicMock())
+
 import pytest
 from pdfviewer import to_download_url, find_pdf_urls
 
