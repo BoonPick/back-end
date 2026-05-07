@@ -363,3 +363,160 @@ class TestNotifyNewItemsForAllUsers:
             result = notifier.notify_new_items_for_all_users()
 
         assert result == 0
+
+
+# ── auto-generated: _db ──
+class TestDb:
+    def test_returns_mysql_connection(self, monkeypatch):
+        monkeypatch.setenv("DB_HOST", "db.example.com")
+        monkeypatch.setenv("DB_PORT", "3307")
+        monkeypatch.setenv("DB_USER", "myuser")
+        monkeypatch.setenv("DB_PASSWORD", "secret")
+        monkeypatch.setenv("DB_NAME", "mydb")
+
+        mock_conn = MagicMock()
+        with patch("mysql.connector.connect", return_value=mock_conn) as mock_connect:
+            result = notifier._db()
+
+        mock_connect.assert_called_once_with(
+            host="db.example.com",
+            port=3307,
+            user="myuser",
+            password="secret",
+            database="mydb",
+        )
+        assert result is mock_conn
+
+    def test_uses_default_values_when_env_not_set(self, monkeypatch):
+        for var in ("DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_NAME"):
+            monkeypatch.delenv(var, raising=False)
+
+        mock_conn = MagicMock()
+        with patch("mysql.connector.connect", return_value=mock_conn) as mock_connect:
+            notifier._db()
+
+        call_kwargs = mock_connect.call_args[1]
+        assert call_kwargs["host"] == "localhost"
+        assert call_kwargs["port"] == 3306
+        assert call_kwargs["user"] == "root"
+        assert call_kwargs["password"] == ""
+        assert call_kwargs["database"] == "boonpick"
+
+
+# ── auto-generated: _fetch_new_items ──
+class TestFetchNewItems:
+    def _make_cursor(self, fetchall_return=None):
+        cursor = MagicMock()
+        cursor.fetchall.return_value = fetchall_return or []
+        return cursor
+
+    def test_returns_empty_list_when_no_matching_sources(self):
+        cursor = self._make_cursor()
+        # Pass an unknown/empty category so sources resolves to []
+        result = notifier._fetch_new_items(cursor, datetime(2024, 1, 1), ["unknown_category"])
+        assert result == []
+        cursor.execute.assert_not_called()
+
+    def test_executes_query_with_valid_categories(self):
+        cursor = self._make_cursor(fetchall_return=[{"id": 1}])
+        last_notified = datetime(2024, 1, 1)
+        result = notifier._fetch_new_items(cursor, last_notified, ["announcement"])
+        cursor.execute.assert_called_once()
+        assert result == [{"id": 1}]
+
+    def test_includes_search_filter_in_query_params(self):
+        cursor = self._make_cursor(fetchall_return=[])
+        last_notified = datetime(2024, 1, 1)
+        notifier._fetch_new_items(cursor, last_notified, ["announcement"], search="장학금")
+        call_args = cursor.execute.call_args
+        params = call_args[0][1]
+        assert any("장학금" in str(p) for p in params)
+
+    def test_no_search_filter_when_search_is_empty(self):
+        cursor = self._make_cursor(fetchall_return=[])
+        last_notified = datetime(2024, 1, 1)
+        notifier._fetch_new_items(cursor, last_notified, ["scholarship"], search="")
+        call_args = cursor.execute.call_args
+        sql = call_args[0][0]
+        assert "LIKE" not in sql
+
+    def test_includes_last_notified_at_in_params(self):
+        cursor = self._make_cursor(fetchall_return=[])
+        last_notified = datetime(2024, 6, 15)
+        notifier._fetch_new_items(cursor, last_notified, ["job"])
+        call_args = cursor.execute.call_args
+        params = call_args[0][1]
+        assert last_notified in params
+
+    def test_all_known_categories_map_to_sources(self):
+        cursor = self._make_cursor(fetchall_return=[{"id": 99}])
+        result = notifier._fetch_new_items(
+            cursor, datetime(2024, 1, 1), ["announcement", "scholarship", "job"]
+        )
+        call_args = cursor.execute.call_args
+        sql = call_args[0][0]
+        params = call_args[0][1]
+        # All three sources should appear in params
+        for src in ("sogang_notice", "sogang_scholarship", "sogang_job"):
+            assert src in params
+
+    def test_returns_fetchall_result(self):
+        rows = [{"id": 1, "title": "Test"}, {"id": 2, "title": "Test2"}]
+        cursor = self._make_cursor(fetchall_return=rows)
+        result = notifier._fetch_new_items(cursor, datetime(2024, 1, 1), ["job"])
+        assert result == rows
+
+
+# ── auto-generated: _fetch_all_active_items ──
+class TestFetchAllActiveItems:
+    def _make_cursor(self, fetchall_return=None):
+        cursor = MagicMock()
+        cursor.fetchall.return_value = fetchall_return or []
+        return cursor
+
+    def test_returns_empty_list_when_no_matching_sources(self):
+        cursor = self._make_cursor()
+        result = notifier._fetch_all_active_items(cursor, ["unknown_category"])
+        assert result == []
+        cursor.execute.assert_not_called()
+
+    def test_executes_query_with_valid_categories(self):
+        cursor = self._make_cursor(fetchall_return=[{"id": 5}])
+        result = notifier._fetch_all_active_items(cursor, ["job"])
+        cursor.execute.assert_called_once()
+        assert result == [{"id": 5}]
+
+    def test_no_time_filter_in_query(self):
+        cursor = self._make_cursor(fetchall_return=[])
+        notifier._fetch_all_active_items(cursor, ["announcement"])
+        call_args = cursor.execute.call_args
+        sql = call_args[0][0]
+        assert "created_at >" not in sql
+
+    def test_includes_search_filter_when_provided(self):
+        cursor = self._make_cursor(fetchall_return=[])
+        notifier._fetch_all_active_items(cursor, ["scholarship"], search="서울")
+        call_args = cursor.execute.call_args
+        params = call_args[0][1]
+        assert any("서울" in str(p) for p in params)
+
+    def test_no_search_filter_when_empty(self):
+        cursor = self._make_cursor(fetchall_return=[])
+        notifier._fetch_all_active_items(cursor, ["job"], search="")
+        call_args = cursor.execute.call_args
+        sql = call_args[0][0]
+        assert "LIKE" not in sql
+
+    def test_selects_deadline_and_is_always_open(self):
+        cursor = self._make_cursor(fetchall_return=[])
+        notifier._fetch_all_active_items(cursor, ["job"])
+        call_args = cursor.execute.call_args
+        sql = call_args[0][0]
+        assert "deadline" in sql
+        assert "is_always_open" in sql
+
+    def test_returns_fetchall_result(self):
+        rows = [{"id": 10, "title": "A"}, {"id": 11, "title": "B"}]
+        cursor = self._make_cursor(fetchall_return=rows)
+        result = notifier._fetch_all_active_items(cursor, ["announcement"])
+        assert result == rows

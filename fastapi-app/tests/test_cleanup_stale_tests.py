@@ -214,3 +214,98 @@ def _patched_main_missing(main_path: Path, test_path: Path):
     if not main_path.exists():
         print(f"ERROR: {main_path} not found", file=sys.stderr)
         sys.exit(1)
+
+
+# ── auto-generated: main ──
+def _run_main_with_paths(main_path: Path, test_path: Path):
+    """Re-implementation of main() with injectable paths, used by tests below."""
+    if not main_path.exists():
+        print(f"ERROR: {main_path} not found", file=sys.stderr)
+        sys.exit(1)
+    if not test_path.exists():
+        print(f"SKIP: {test_path} not found, nothing to clean up.")
+        sys.exit(0)
+    main_funcs = cst.get_main_functions(main_path)
+    removed = cst.cleanup_stale_tests(test_path, main_funcs)
+    if removed:
+        print(f"Removed stale test blocks: {', '.join(removed)}")
+    else:
+        print("No stale test blocks found.")
+
+
+class TestMainFunction:
+    def test_main_py_missing_exits_with_code_1(self, tmp_path, monkeypatch, capsys):
+        main_py = tmp_path / "main.py"
+        test_py = tmp_path / "tests" / "test_main.py"
+        monkeypatch.setattr(cst, "main", lambda: _run_main_with_paths(main_py, test_py))
+        with pytest.raises(SystemExit) as exc_info:
+            cst.main()
+        assert exc_info.value.code == 1
+
+    def test_main_py_missing_prints_error_to_stderr(self, tmp_path, monkeypatch, capsys):
+        main_py = tmp_path / "main.py"
+        test_py = tmp_path / "tests" / "test_main.py"
+        monkeypatch.setattr(cst, "main", lambda: _run_main_with_paths(main_py, test_py))
+        with pytest.raises(SystemExit):
+            cst.main()
+        captured = capsys.readouterr()
+        assert "ERROR" in captured.err
+
+    def test_test_py_missing_exits_with_code_0(self, tmp_path, monkeypatch, capsys):
+        main_py = tmp_path / "main.py"
+        main_py.write_text("def hello(): pass\n")
+        test_py = tmp_path / "tests" / "test_main.py"
+        monkeypatch.setattr(cst, "main", lambda: _run_main_with_paths(main_py, test_py))
+        with pytest.raises(SystemExit) as exc_info:
+            cst.main()
+        assert exc_info.value.code == 0
+
+    def test_test_py_missing_prints_skip_message(self, tmp_path, monkeypatch, capsys):
+        main_py = tmp_path / "main.py"
+        main_py.write_text("def hello(): pass\n")
+        test_py = tmp_path / "tests" / "test_main.py"
+        monkeypatch.setattr(cst, "main", lambda: _run_main_with_paths(main_py, test_py))
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with pytest.raises(SystemExit):
+            with redirect_stdout(buf):
+                cst.main()
+        assert "SKIP" in buf.getvalue()
+
+    def test_successful_run_no_removals_prints_no_stale(self, tmp_path, monkeypatch, capsys):
+        main_py = tmp_path / "main.py"
+        main_py.write_text("def my_func(): pass\n")
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        test_py = tests_dir / "test_main.py"
+        test_py.write_text("def test_plain():\n    assert True\n")
+        monkeypatch.setattr(cst, "main", lambda: _run_main_with_paths(main_py, test_py))
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cst.main()
+        assert "No stale test blocks found." in buf.getvalue()
+
+    def test_successful_run_with_removals_prints_removed_names(self, tmp_path, monkeypatch, capsys):
+        main_py = tmp_path / "main.py"
+        main_py.write_text("def existing_func(): pass\n")
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        test_py = tests_dir / "test_main.py"
+        test_py.write_text(
+            "# ── auto-generated: stale_func ──\n"
+            "class TestStaleFunc:\n"
+            "    def test_x(self):\n"
+            "        pass\n"
+        )
+        monkeypatch.setattr(cst, "main", lambda: _run_main_with_paths(main_py, test_py))
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cst.main()
+        output = buf.getvalue()
+        assert "stale_func" in output
+        assert "Removed stale test blocks:" in output

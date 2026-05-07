@@ -100,3 +100,44 @@ class TestJobPostingCrawl:
         with caplog.at_level(logging.ERROR, logger="scheduler"):
             job_posting_crawl()
         assert any("parse failed" in r.message for r in caplog.records)
+
+
+# ── auto-generated: notification_batch ──
+_mock_notifier = types.ModuleType("notifier")
+_mock_notifier.notify_new_items_for_all_users = MagicMock(return_value=3)
+sys.modules.setdefault("notifier", _mock_notifier)
+
+# Re-import notification_batch now that notifier mock is in place
+sys.modules.pop("scheduler", None)
+from scheduler import notification_batch  # noqa: E402
+
+
+class TestNotificationBatch:
+    def setup_method(self):
+        _mock_notifier.notify_new_items_for_all_users.reset_mock()
+        _mock_notifier.notify_new_items_for_all_users.side_effect = None
+        _mock_notifier.notify_new_items_for_all_users.return_value = 3
+
+    def test_calls_notify_new_items_for_all_users(self):
+        notification_batch()
+        _mock_notifier.notify_new_items_for_all_users.assert_called_once_with()
+
+    def test_returns_none_on_success(self):
+        result = notification_batch()
+        assert result is None
+
+    def test_logs_completion_with_sent_count_on_success(self, caplog):
+        _mock_notifier.notify_new_items_for_all_users.return_value = 5
+        with caplog.at_level(logging.INFO, logger="scheduler"):
+            notification_batch()
+        assert any("5" in r.message for r in caplog.records)
+
+    def test_exception_is_caught_and_not_reraised(self):
+        _mock_notifier.notify_new_items_for_all_users.side_effect = RuntimeError("smtp error")
+        notification_batch()  # must not raise
+
+    def test_exception_is_logged_as_error(self, caplog):
+        _mock_notifier.notify_new_items_for_all_users.side_effect = Exception("connection refused")
+        with caplog.at_level(logging.ERROR, logger="scheduler"):
+            notification_batch()
+        assert any("connection refused" in r.message for r in caplog.records)
