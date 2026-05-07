@@ -1,7 +1,14 @@
+import sys
 import pytest
 from datetime import date
 from bs4 import BeautifulSoup
-from crawling_job import _parse_deadline, _span_text, _parse_detail, _extract_rcdx_list
+import crawling_job as _crawling_job_module
+from crawling_job import (
+    _parse_deadline, _span_text, _parse_detail, _extract_rcdx_list,
+    get_db_connection, DB_CONFIG, job_exists, job_exists_by_title_worktype,
+    SOURCE_NAME, save_content, save_job_posting, _login, LOGIN_URL,
+    _collect_rcdx_all_pages, LIST_URL,
+)
 
 
 class TestParseDeadline:
@@ -143,7 +150,6 @@ class TestGetDbConnection:
         mock_conn = mocker.MagicMock()
         mock_connect.return_value = mock_conn
 
-        from crawling_job import get_db_connection, DB_CONFIG
         result = get_db_connection()
 
         mock_connect.assert_called_once_with(**DB_CONFIG)
@@ -151,7 +157,6 @@ class TestGetDbConnection:
 
     def test_passes_db_config_values(self, mocker):
         mock_connect = mocker.patch("mysql.connector.connect")
-        from crawling_job import get_db_connection, DB_CONFIG
 
         get_db_connection()
 
@@ -168,18 +173,15 @@ class TestJobExists:
         return cursor
 
     def test_returns_true_when_row_found(self, mocker):
-        from crawling_job import job_exists
         cursor = self._make_cursor(mocker, (1,))
         assert job_exists(cursor, "http://example.com/job/1") is True
         cursor.execute.assert_called_once()
 
     def test_returns_false_when_no_row(self, mocker):
-        from crawling_job import job_exists
         cursor = self._make_cursor(mocker, None)
         assert job_exists(cursor, "http://example.com/job/999") is False
 
     def test_executes_with_correct_url(self, mocker):
-        from crawling_job import job_exists
         cursor = self._make_cursor(mocker, None)
         url = "http://example.com/job/42"
         job_exists(cursor, url)
@@ -195,17 +197,14 @@ class TestJobExistsByTitleWorktype:
         return cursor
 
     def test_returns_true_when_match_found(self, mocker):
-        from crawling_job import job_exists_by_title_worktype
         cursor = self._make_cursor(mocker, (1,))
         assert job_exists_by_title_worktype(cursor, "Some Job Title", "인턴직") is True
 
     def test_returns_false_when_no_match(self, mocker):
-        from crawling_job import job_exists_by_title_worktype
         cursor = self._make_cursor(mocker, None)
         assert job_exists_by_title_worktype(cursor, "Nonexistent Job", "정규직") is False
 
     def test_passes_source_name_title_worktype(self, mocker):
-        from crawling_job import job_exists_by_title_worktype, SOURCE_NAME
         cursor = self._make_cursor(mocker, None)
         title = "Test Job"
         work_type = "계약직"
@@ -217,7 +216,6 @@ class TestJobExistsByTitleWorktype:
         assert params[2] == work_type
 
     def test_executes_join_query(self, mocker):
-        from crawling_job import job_exists_by_title_worktype
         cursor = self._make_cursor(mocker, None)
         job_exists_by_title_worktype(cursor, "Title", "WorkType")
         sql = cursor.execute.call_args[0][0]
@@ -233,13 +231,11 @@ class TestSaveContent:
         return cursor
 
     def test_returns_lastrowid(self, mocker):
-        from crawling_job import save_content
         cursor = self._make_cursor(mocker, lastrowid=99)
         result = save_content(cursor, "Job Title", "http://url", "raw text")
         assert result == 99
 
     def test_executes_insert_without_posted_at(self, mocker):
-        from crawling_job import save_content
         cursor = self._make_cursor(mocker)
         save_content(cursor, "Title", "http://url", "content", posted_at=None)
         cursor.execute.assert_called_once()
@@ -250,7 +246,6 @@ class TestSaveContent:
 
     def test_executes_insert_with_posted_at(self, mocker):
         from datetime import datetime
-        from crawling_job import save_content
         cursor = self._make_cursor(mocker)
         posted = datetime(2026, 4, 27)
         save_content(cursor, "Title", "http://url", "content", posted_at=posted)
@@ -260,14 +255,12 @@ class TestSaveContent:
         assert posted in params
 
     def test_upsert_includes_on_duplicate_key(self, mocker):
-        from crawling_job import save_content
         cursor = self._make_cursor(mocker)
         save_content(cursor, "Title", "http://url", "content")
         sql = cursor.execute.call_args[0][0]
         assert "ON DUPLICATE KEY UPDATE" in sql
 
     def test_source_name_is_sogang_job(self, mocker):
-        from crawling_job import save_content, SOURCE_NAME
         cursor = self._make_cursor(mocker)
         save_content(cursor, "Title", "http://url", "content")
         params = cursor.execute.call_args[0][1]
@@ -277,14 +270,12 @@ class TestSaveContent:
 # ── auto-generated: save_job_posting ──
 class TestSaveJobPosting:
     def test_executes_insert(self, mocker):
-        from crawling_job import save_job_posting
         cursor = mocker.MagicMock()
         save_job_posting(cursor, 10, "인턴", "인턴직", "기타", None, 1)
         cursor.execute.assert_called_once()
 
     def test_passes_all_params(self, mocker):
         from datetime import date
-        from crawling_job import save_job_posting
         cursor = mocker.MagicMock()
         deadline = date(2026, 6, 30)
         save_job_posting(cursor, 5, "정규직", "계약직", "개발", deadline, 0)
@@ -292,14 +283,12 @@ class TestSaveJobPosting:
         assert params == (5, "정규직", "계약직", "개발", deadline, 0)
 
     def test_upsert_includes_on_duplicate_key(self, mocker):
-        from crawling_job import save_job_posting
         cursor = mocker.MagicMock()
         save_job_posting(cursor, 1, "e", "wt", "duty", None, 0)
         sql = cursor.execute.call_args[0][0]
         assert "ON DUPLICATE KEY UPDATE" in sql
 
     def test_inserts_into_job_postings_table(self, mocker):
-        from crawling_job import save_job_posting
         cursor = mocker.MagicMock()
         save_job_posting(cursor, 1, "e", "wt", "duty", None, 0)
         sql = cursor.execute.call_args[0][0]
@@ -319,7 +308,6 @@ class TestLogin:
         return el
 
     def test_raises_if_saint_id_missing(self, mocker, monkeypatch):
-        from crawling_job import _login
         monkeypatch.delenv("SAINT_ID", raising=False)
         monkeypatch.delenv("SAINT_PW", raising=False)
         monkeypatch.setenv("SAINT_ID", "")
@@ -329,7 +317,6 @@ class TestLogin:
             _login(page)
 
     def test_raises_if_saint_pw_missing(self, mocker, monkeypatch):
-        from crawling_job import _login
         monkeypatch.setenv("SAINT_ID", "someid")
         monkeypatch.setenv("SAINT_PW", "")
         page = mocker.MagicMock()
@@ -337,7 +324,6 @@ class TestLogin:
             _login(page)
 
     def test_raises_if_both_env_vars_missing(self, mocker, monkeypatch):
-        from crawling_job import _login
         monkeypatch.setenv("SAINT_ID", "")
         monkeypatch.setenv("SAINT_PW", "")
         page = mocker.MagicMock()
@@ -346,7 +332,6 @@ class TestLogin:
 
     def test_raises_if_id_field_not_found(self, mocker, monkeypatch):
         from playwright.sync_api import TimeoutError as PlaywrightTimeout
-        from crawling_job import _login
         monkeypatch.setenv("SAINT_ID", "testuser")
         monkeypatch.setenv("SAINT_PW", "testpass")
 
@@ -363,7 +348,6 @@ class TestLogin:
 
     def test_raises_if_pw_field_not_found(self, mocker, monkeypatch):
         from playwright.sync_api import TimeoutError as PlaywrightTimeout
-        from crawling_job import _login
         monkeypatch.setenv("SAINT_ID", "testuser")
         monkeypatch.setenv("SAINT_PW", "testpass")
 
@@ -393,7 +377,6 @@ class TestLogin:
             _login(page)
 
     def test_successful_login_navigates_away(self, mocker, monkeypatch):
-        from crawling_job import _login, LOGIN_URL
         monkeypatch.setenv("SAINT_ID", "testuser")
         monkeypatch.setenv("SAINT_PW", "testpass")
 
@@ -418,7 +401,6 @@ class TestLogin:
 
     def test_login_raises_on_failed_redirect(self, mocker, monkeypatch):
         from playwright.sync_api import TimeoutError as PlaywrightTimeout
-        from crawling_job import _login
         monkeypatch.setenv("SAINT_ID", "testuser")
         monkeypatch.setenv("SAINT_PW", "wrongpass")
 
@@ -444,13 +426,10 @@ class TestParseDeadlineErrorBranch:
 
     def test_invalid_date_string_with_regex_match_returns_none_zero(self, mocker):
         """When regex finds a date-like pattern but strptime raises ValueError, return (None, 0)."""
-        from crawling_job import _parse_deadline
-        import re as _re
-
-        original_strptime = __import__("datetime").datetime.strptime
-
-        # Patch datetime.strptime to raise ValueError
-        mock_dt = mocker.patch("crawling_job.datetime")
+        # Patch datetime on the real module object (bound at import time), not via
+        # sys.modules string lookup, to avoid interference from test_scheduler.py
+        # replacing sys.modules["crawling_job"] with a mock.
+        mock_dt = mocker.patch.object(_crawling_job_module, "datetime")
         mock_dt.strptime.side_effect = ValueError("unconverted data")
 
         # re.search will still match "2026-13-99" (invalid date but matches pattern)
@@ -460,14 +439,12 @@ class TestParseDeadlineErrorBranch:
 
     def test_no_regex_match_returns_none_zero(self):
         """String with no date pattern and no 상시 → (None, 0)."""
-        from crawling_job import _parse_deadline
         deadline, is_always = _parse_deadline("마감일 없음")
         assert deadline is None
         assert is_always == 0
 
     def test_text_without_date_not_always_open(self):
         """Plain text without date or 상시 returns is_always_open=0."""
-        from crawling_job import _parse_deadline
         _, is_always = _parse_deadline("채용중")
         assert is_always == 0
 
@@ -485,7 +462,6 @@ class TestCollectRcdxAllPages:
         return f"<html><body>{links}</body></html>"
 
     def test_single_page_returns_rcdx_list(self, mocker):
-        from crawling_job import _collect_rcdx_all_pages, LIST_URL
         page = mocker.MagicMock()
         page.content.return_value = self._html_with_rcdx(self.RCDX_A, self.RCDX_B)
 
@@ -499,7 +475,6 @@ class TestCollectRcdxAllPages:
         )
 
     def test_empty_page_stops_early(self, mocker):
-        from crawling_job import _collect_rcdx_all_pages
         page = mocker.MagicMock()
         # First page has content, second is empty — should stop after 1st empty page
         page.content.side_effect = [
@@ -514,7 +489,6 @@ class TestCollectRcdxAllPages:
         assert page.goto.call_count == 2
 
     def test_deduplicates_across_pages(self, mocker):
-        from crawling_job import _collect_rcdx_all_pages
         page = mocker.MagicMock()
         # Both pages return the same rcdx
         html_same = self._html_with_rcdx(self.RCDX_A)
@@ -525,7 +499,6 @@ class TestCollectRcdxAllPages:
         assert result.count(self.RCDX_A) == 1
 
     def test_page_two_uses_rp_param(self, mocker):
-        from crawling_job import _collect_rcdx_all_pages, LIST_URL
         page = mocker.MagicMock()
         page.content.side_effect = [
             self._html_with_rcdx(self.RCDX_A),
@@ -540,8 +513,451 @@ class TestCollectRcdxAllPages:
         assert calls[1][0][0] == f"{LIST_URL}?rp=2"
 
     def test_zero_pages_returns_empty(self, mocker):
-        from crawling_job import _collect_rcdx_all_pages
         page = mocker.MagicMock()
         result = _collect_rcdx_all_pages(page, page_count=0)
         assert result == []
         page.goto.assert_not_called()
+
+
+# ── auto-generated: _login_exception_branches ──
+class TestLoginExceptionBranches:
+    """Tests for PlaywrightTimeout continue branches and Enter fallback in _login."""
+
+    def _setup_env(self, monkeypatch):
+        monkeypatch.setenv("SAINT_ID", "testuser")
+        monkeypatch.setenv("SAINT_PW", "testpass")
+
+    def test_timeout_on_id_selector_continues_to_next_selector(self, mocker, monkeypatch):
+        """PlaywrightTimeout on first id selector is caught and loop continues to next selector."""
+        from playwright.sync_api import TimeoutError as PlaywrightTimeout
+        self._setup_env(monkeypatch)
+
+        page = mocker.MagicMock()
+        page.goto.return_value = None
+        page.url = "https://job.sogang.ac.kr/main/index.aspx"
+        page.wait_for_url.return_value = None
+
+        call_count = {"n": 0}
+
+        def make_locator(sel):
+            lc = mocker.MagicMock()
+            el = mocker.MagicMock()
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                # First id selector raises PlaywrightTimeout on is_visible
+                el.is_visible.side_effect = PlaywrightTimeout("timeout on id selector 1")
+            elif call_count["n"] == 2:
+                # Second id selector succeeds — becomes id_field
+                el.is_visible.return_value = True
+                el.is_visible.side_effect = None
+            else:
+                # All pw selectors: first one is visible — becomes pw_field
+                el.is_visible.return_value = True
+                el.is_visible.side_effect = None
+            lc.first = el
+            return lc
+
+        page.locator.side_effect = make_locator
+
+        # Should not raise; timeout on id selector 1 is caught and loop continues
+        _login(page)
+
+        # fill was called on both found fields
+        assert page.locator.call_count >= 2
+
+    def test_timeout_on_pw_selector_continues_to_next_selector(self, mocker, monkeypatch):
+        """PlaywrightTimeout on first pw selector is caught; loop continues until a visible pw field is found."""
+        from playwright.sync_api import TimeoutError as PlaywrightTimeout
+        self._setup_env(monkeypatch)
+
+        page = mocker.MagicMock()
+        page.goto.return_value = None
+        page.url = "https://job.sogang.ac.kr/main/index.aspx"
+        page.wait_for_url.return_value = None
+
+        id_selectors_count = 6
+        call_count = {"n": 0}
+
+        def make_locator(sel):
+            lc = mocker.MagicMock()
+            el = mocker.MagicMock()
+            call_count["n"] += 1
+            n = call_count["n"]
+            if n == 1:
+                # First id selector is visible → id_field found immediately
+                el.is_visible.return_value = True
+                el.is_visible.side_effect = None
+            elif n == id_selectors_count + 1:
+                # First pw selector times out
+                el.is_visible.side_effect = PlaywrightTimeout("timeout on pw selector 1")
+            else:
+                # All other pw selectors: second pw selector visible → pw_field
+                el.is_visible.return_value = True
+                el.is_visible.side_effect = None
+            lc.first = el
+            return lc
+
+        page.locator.side_effect = make_locator
+
+        _login(page)
+
+        page.wait_for_url.assert_called_once()
+
+    def test_all_submit_button_selectors_timeout_falls_back_to_enter(self, mocker, monkeypatch):
+        """When every submit-button locator raises PlaywrightTimeout, page.keyboard.press('Enter') is called."""
+        from playwright.sync_api import TimeoutError as PlaywrightTimeout
+        self._setup_env(monkeypatch)
+
+        page = mocker.MagicMock()
+        page.goto.return_value = None
+        page.url = "https://job.sogang.ac.kr/main/index.aspx"
+        page.wait_for_url.return_value = None
+
+        id_selectors_count = 6   # number of id selectors
+        pw_selectors_count = 6   # number of pw selectors
+        call_count = {"n": 0}
+
+        def make_locator(sel):
+            lc = mocker.MagicMock()
+            el = mocker.MagicMock()
+            call_count["n"] += 1
+            n = call_count["n"]
+            if n <= id_selectors_count + pw_selectors_count:
+                # id and pw selectors: first of each returns visible
+                if n == 1 or n == id_selectors_count + 1:
+                    el.is_visible.return_value = True
+                    el.is_visible.side_effect = None
+                else:
+                    el.is_visible.return_value = False
+                    el.is_visible.side_effect = None
+            else:
+                # All submit button selectors time out
+                el.is_visible.side_effect = PlaywrightTimeout("submit btn timeout")
+            lc.first = el
+            return lc
+
+        page.locator.side_effect = make_locator
+
+        _login(page)
+
+        # Because no submit button was clicked, Enter must be pressed as fallback
+        page.keyboard.press.assert_called_once_with("Enter")
+
+    def test_submit_button_timeout_does_not_prevent_successful_login(self, mocker, monkeypatch):
+        """Enter fallback after all submit-button timeouts still reaches wait_for_url."""
+        from playwright.sync_api import TimeoutError as PlaywrightTimeout
+        self._setup_env(monkeypatch)
+
+        page = mocker.MagicMock()
+        page.goto.return_value = None
+        page.url = "https://job.sogang.ac.kr/main/index.aspx"
+        page.wait_for_url.return_value = None
+
+        submit_selectors_count = 5
+        id_pw_selectors_count = 12  # 6 id + 6 pw
+        call_count = {"n": 0}
+
+        def make_locator(sel):
+            lc = mocker.MagicMock()
+            el = mocker.MagicMock()
+            call_count["n"] += 1
+            n = call_count["n"]
+            if n <= id_pw_selectors_count:
+                if n == 1 or n == 7:
+                    el.is_visible.return_value = True
+                    el.is_visible.side_effect = None
+                else:
+                    el.is_visible.return_value = False
+                    el.is_visible.side_effect = None
+            else:
+                el.is_visible.side_effect = PlaywrightTimeout("timeout")
+            lc.first = el
+            return lc
+
+        page.locator.side_effect = make_locator
+
+        _login(page)
+
+        page.wait_for_url.assert_called_once()
+        page.keyboard.press.assert_called_once_with("Enter")
+
+
+# ── auto-generated: _parse_detail_error_handling ──
+class TestParseDetailErrorHandling:
+    """Tests for error/fallback branches in _parse_detail."""
+
+    def test_script_and_style_tags_are_decomposed_from_alltext(self):
+        """script and style tags inside ALLTEXT are removed from raw_content."""
+        html = """
+        <html><body>
+          <span id="Title">Test Job</span>
+          <span id="RUDate">2026-04-01</span>
+          <span id="RecomEmp">정규직</span>
+          <span id="WorkType">정규직</span>
+          <span id="Duty">개발</span>
+          <span id="Edate">2026-06-01 정시</span>
+          <span id="ALLTEXT">
+            본문 텍스트
+            <script>alert('xss')</script>
+            <style>.hidden { display: none; }</style>
+            추가 내용
+          </span>
+        </body></html>
+        """
+        result = _parse_detail(html)
+        assert "alert" not in result["raw_content"]
+        assert ".hidden" not in result["raw_content"]
+        assert "본문 텍스트" in result["raw_content"]
+        assert "추가 내용" in result["raw_content"]
+
+    def test_missing_alltext_element_returns_empty_raw_content(self):
+        """When ALLTEXT span is absent, raw_content falls back to empty string."""
+        html = """
+        <html><body>
+          <span id="Title">No Content Job</span>
+          <span id="RUDate">2026-03-15</span>
+          <span id="RecomEmp">계약직</span>
+          <span id="WorkType">계약직</span>
+          <span id="Duty">기타</span>
+          <span id="Edate">상시채용</span>
+        </body></html>
+        """
+        result = _parse_detail(html)
+        assert result["raw_content"] == ""
+        assert result["title"] == "No Content Job"
+        assert result["is_always_open"] == 1
+
+    def test_invalid_ru_date_format_results_in_none_posted_at(self):
+        """When RUDate is an invalid date string, posted_at is None (ValueError caught)."""
+        html = """
+        <html><body>
+          <span id="Title">Bad Date Job</span>
+          <span id="RUDate">not-a-date</span>
+          <span id="RecomEmp">인턴</span>
+          <span id="WorkType">인턴직</span>
+          <span id="Duty">기타</span>
+          <span id="Edate">2026-07-01 정시</span>
+          <span id="ALLTEXT">내용</span>
+        </body></html>
+        """
+        result = _parse_detail(html)
+        # "not-a-date" doesn't match "%Y-%m-%d" → ValueError → posted_at stays None
+        assert result["posted_at"] is None
+        assert result["title"] == "Bad Date Job"
+
+    def test_empty_ru_date_results_in_none_posted_at(self):
+        """When RUDate span is absent, posted_at is None without raising."""
+        html = """
+        <html><body>
+          <span id="Title">No Date Job</span>
+          <span id="RecomEmp">인턴</span>
+          <span id="WorkType">인턴직</span>
+          <span id="Duty">기타</span>
+          <span id="Edate">2026-07-01 정시</span>
+          <span id="ALLTEXT">내용</span>
+        </body></html>
+        """
+        result = _parse_detail(html)
+        assert result["posted_at"] is None
+
+
+# ── auto-generated: crawl_jobs ──
+class TestCrawlJobs:
+    """Tests for the crawl_jobs() orchestration function."""
+
+    RCDX_NEW = "A" * 64
+    RCDX_EXISTING = "B" * 64
+    RCDX_NO_TITLE = "C" * 64
+    RCDX_DUP_TITLE = "D" * 64
+    RCDX_TIMEOUT = "E" * 64
+
+    def _detail_fields(self, title="Test Job"):
+        return {
+            "title": title,
+            "employment": "인턴",
+            "work_type": "인턴직",
+            "duty": "기타",
+            "deadline": None,
+            "is_always_open": 1,
+            "posted_at": None,
+            "raw_content": "직무 내용",
+        }
+
+    def _setup_playwright_mocks(self, mocker):
+        """Return a mock page and wire up sync_playwright context manager."""
+        mock_page = mocker.MagicMock()
+        mock_context = mocker.MagicMock()
+        mock_browser = mocker.MagicMock()
+        mock_pw = mocker.MagicMock()
+
+        mock_context.new_page.return_value = mock_page
+        mock_browser.new_context.return_value = mock_context
+        mock_pw.chromium.launch.return_value = mock_browser
+
+        mock_sync_playwright = mocker.MagicMock()
+        mock_sync_playwright.return_value.__enter__.return_value = mock_pw
+        mock_sync_playwright.return_value.__exit__.return_value = False
+
+        mocker.patch.object(_crawling_job_module, "sync_playwright", mock_sync_playwright)
+        return mock_page, mock_browser
+
+    def _setup_db_mocks(self, mocker):
+        """Return mock conn and cursor."""
+        mock_cursor = mocker.MagicMock()
+        mock_conn = mocker.MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+        mocker.patch.object(_crawling_job_module, "get_db_connection", return_value=mock_conn)
+        return mock_conn, mock_cursor
+
+    def test_saves_new_job_and_returns_count(self, mocker):
+        """A new rcdx that passes all checks is saved; saved_count is returned."""
+        mock_page, mock_browser = self._setup_playwright_mocks(mocker)
+        mock_conn, mock_cursor = self._setup_db_mocks(mocker)
+
+        mocker.patch.object(_crawling_job_module, "_login")
+        mocker.patch.object(
+            _crawling_job_module, "_collect_rcdx_all_pages",
+            return_value=[self.RCDX_NEW],
+        )
+        mocker.patch.object(_crawling_job_module, "job_exists", return_value=False)
+        mocker.patch.object(_crawling_job_module, "job_exists_by_title_worktype", return_value=False)
+        mocker.patch.object(
+            _crawling_job_module, "_parse_detail",
+            return_value=self._detail_fields("Test Job"),
+        )
+        mock_save_content = mocker.patch.object(
+            _crawling_job_module, "save_content", return_value=42
+        )
+        mock_save_posting = mocker.patch.object(_crawling_job_module, "save_job_posting")
+
+        result = _crawling_job_module.crawl_jobs(page_count=1)
+
+        assert result == 1
+        mock_save_content.assert_called_once()
+        mock_save_posting.assert_called_once()
+        mock_conn.commit.assert_called_once()
+
+    def test_skips_already_existing_rcdx(self, mocker):
+        """rcdx whose URL already exists in the DB is skipped without calling parse/save."""
+        mock_page, _ = self._setup_playwright_mocks(mocker)
+        mock_conn, mock_cursor = self._setup_db_mocks(mocker)
+
+        mocker.patch.object(_crawling_job_module, "_login")
+        mocker.patch.object(
+            _crawling_job_module, "_collect_rcdx_all_pages",
+            return_value=[self.RCDX_EXISTING],
+        )
+        # job_exists returns True → should skip
+        mocker.patch.object(_crawling_job_module, "job_exists", return_value=True)
+        mock_parse = mocker.patch.object(_crawling_job_module, "_parse_detail")
+        mock_save = mocker.patch.object(_crawling_job_module, "save_content")
+
+        result = _crawling_job_module.crawl_jobs(page_count=1)
+
+        assert result == 0
+        mock_parse.assert_not_called()
+        mock_save.assert_not_called()
+
+    def test_skips_job_with_empty_title(self, mocker):
+        """A detail page with no title is skipped; save functions are not called."""
+        mock_page, _ = self._setup_playwright_mocks(mocker)
+        mock_conn, mock_cursor = self._setup_db_mocks(mocker)
+
+        mocker.patch.object(_crawling_job_module, "_login")
+        mocker.patch.object(
+            _crawling_job_module, "_collect_rcdx_all_pages",
+            return_value=[self.RCDX_NO_TITLE],
+        )
+        mocker.patch.object(_crawling_job_module, "job_exists", return_value=False)
+        mocker.patch.object(
+            _crawling_job_module, "_parse_detail",
+            return_value=self._detail_fields(""),  # empty title
+        )
+        mock_save = mocker.patch.object(_crawling_job_module, "save_content")
+
+        result = _crawling_job_module.crawl_jobs(page_count=1)
+
+        assert result == 0
+        mock_save.assert_not_called()
+
+    def test_skips_duplicate_title_worktype(self, mocker):
+        """rcdx whose title+work_type combo already exists is skipped."""
+        mock_page, _ = self._setup_playwright_mocks(mocker)
+        mock_conn, mock_cursor = self._setup_db_mocks(mocker)
+
+        mocker.patch.object(_crawling_job_module, "_login")
+        mocker.patch.object(
+            _crawling_job_module, "_collect_rcdx_all_pages",
+            return_value=[self.RCDX_DUP_TITLE],
+        )
+        mocker.patch.object(_crawling_job_module, "job_exists", return_value=False)
+        mocker.patch.object(
+            _crawling_job_module, "_parse_detail",
+            return_value=self._detail_fields("Duplicate Job"),
+        )
+        # job_exists_by_title_worktype returns True → duplicate
+        mocker.patch.object(
+            _crawling_job_module, "job_exists_by_title_worktype", return_value=True
+        )
+        mock_save = mocker.patch.object(_crawling_job_module, "save_content")
+
+        result = _crawling_job_module.crawl_jobs(page_count=1)
+
+        assert result == 0
+        mock_save.assert_not_called()
+
+    def test_page_goto_timeout_continues_to_next_rcdx(self, mocker):
+        """PlaywrightTimeout on page.goto for a detail URL is caught; processing continues."""
+        from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+        mock_page, _ = self._setup_playwright_mocks(mocker)
+        mock_conn, mock_cursor = self._setup_db_mocks(mocker)
+
+        mocker.patch.object(_crawling_job_module, "_login")
+        mocker.patch.object(
+            _crawling_job_module, "_collect_rcdx_all_pages",
+            return_value=[self.RCDX_TIMEOUT, self.RCDX_NEW],
+        )
+
+        def job_exists_side_effect(cursor, url):
+            return False  # both rcdx are new
+
+        mocker.patch.object(_crawling_job_module, "job_exists", side_effect=job_exists_side_effect)
+        mocker.patch.object(_crawling_job_module, "job_exists_by_title_worktype", return_value=False)
+
+        # First goto (RCDX_TIMEOUT) raises; second (RCDX_NEW) succeeds
+        mock_page.goto.side_effect = [
+            PlaywrightTimeout("detail page timeout"),
+            None,
+        ]
+        mocker.patch.object(
+            _crawling_job_module, "_parse_detail",
+            return_value=self._detail_fields("Surviving Job"),
+        )
+        mock_save_content = mocker.patch.object(
+            _crawling_job_module, "save_content", return_value=7
+        )
+        mocker.patch.object(_crawling_job_module, "save_job_posting")
+
+        result = _crawling_job_module.crawl_jobs(page_count=1)
+
+        # Only the non-timeout rcdx is saved
+        assert result == 1
+        mock_save_content.assert_called_once()
+
+    def test_db_connection_closed_on_exception(self, mocker):
+        """conn.close() and cursor.close() are called even when an exception occurs."""
+        mock_page, _ = self._setup_playwright_mocks(mocker)
+        mock_conn, mock_cursor = self._setup_db_mocks(mocker)
+
+        mocker.patch.object(_crawling_job_module, "_login")
+        mocker.patch.object(
+            _crawling_job_module, "_collect_rcdx_all_pages",
+            side_effect=RuntimeError("unexpected error"),
+        )
+
+        with pytest.raises(RuntimeError, match="unexpected error"):
+            _crawling_job_module.crawl_jobs(page_count=1)
+
+        mock_cursor.close.assert_called_once()
+        mock_conn.close.assert_called_once()

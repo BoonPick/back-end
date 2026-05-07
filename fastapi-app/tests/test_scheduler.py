@@ -105,7 +105,7 @@ class TestJobPostingCrawl:
 # ── auto-generated: notification_batch ──
 _mock_notifier = types.ModuleType("notifier")
 _mock_notifier.notify_new_items_for_all_users = MagicMock(return_value=3)
-sys.modules.setdefault("notifier", _mock_notifier)
+sys.modules["notifier"] = _mock_notifier
 
 # Re-import notification_batch now that notifier mock is in place
 sys.modules.pop("scheduler", None)
@@ -141,3 +141,69 @@ class TestNotificationBatch:
         with caplog.at_level(logging.ERROR, logger="scheduler"):
             notification_batch()
         assert any("connection refused" in r.message for r in caplog.records)
+
+
+# ── auto-generated: __main__block ──
+import runpy
+from unittest.mock import call
+
+
+class TestSchedulerMain:
+    """Tests for the if __name__ == '__main__' block in scheduler.py."""
+
+    def _run_main_with_mock_scheduler(self, mock_blocking_scheduler):
+        """Helper: run the __main__ block via runpy with BlockingScheduler mocked."""
+        with patch(
+            "apscheduler.schedulers.blocking.BlockingScheduler",
+            mock_blocking_scheduler,
+        ):
+            # runpy executes the module under __name__ == '__main__'
+            runpy.run_path(
+                # locate scheduler.py relative to this test file
+                str(__import__("pathlib").Path(__file__).parent.parent / "scheduler.py"),
+                run_name="__main__",
+            )
+
+    def test_add_job_called_three_times(self):
+        """BlockingScheduler.add_job must be called exactly 3 times."""
+        mock_sched_instance = MagicMock()
+        mock_sched_class = MagicMock(return_value=mock_sched_instance)
+
+        self._run_main_with_mock_scheduler(mock_sched_class)
+
+        assert mock_sched_instance.add_job.call_count == 3
+
+    def test_add_job_registers_correct_function_ids(self):
+        """Each add_job call should use the expected job ids."""
+        mock_sched_instance = MagicMock()
+        mock_sched_class = MagicMock(return_value=mock_sched_instance)
+
+        self._run_main_with_mock_scheduler(mock_sched_class)
+
+        kwargs_list = [c.kwargs for c in mock_sched_instance.add_job.call_args_list]
+        job_ids = {kw["id"] for kw in kwargs_list}
+        assert job_ids == {"daily_noti_crawl", "daily_job_crawl", "daily_notification_batch"}
+
+    def test_keyboard_interrupt_is_handled_without_raising(self, caplog):
+        """When scheduler.start() raises KeyboardInterrupt the block must not propagate it."""
+        mock_sched_instance = MagicMock()
+        mock_sched_instance.start.side_effect = KeyboardInterrupt
+        mock_sched_class = MagicMock(return_value=mock_sched_instance)
+
+        # Should complete without raising
+        # runpy.run_path with run_name="__main__" makes logger name "__main__", not "scheduler"
+        with caplog.at_level(logging.INFO):
+            self._run_main_with_mock_scheduler(mock_sched_class)
+
+        assert any("스케줄러 종료" in r.message for r in caplog.records)
+
+    def test_system_exit_is_handled_without_raising(self, caplog):
+        """When scheduler.start() raises SystemExit the block must not propagate it."""
+        mock_sched_instance = MagicMock()
+        mock_sched_instance.start.side_effect = SystemExit
+        mock_sched_class = MagicMock(return_value=mock_sched_instance)
+
+        with caplog.at_level(logging.INFO):
+            self._run_main_with_mock_scheduler(mock_sched_class)
+
+        assert any("스케줄러 종료" in r.message for r in caplog.records)

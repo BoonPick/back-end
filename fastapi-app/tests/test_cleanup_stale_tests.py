@@ -309,3 +309,47 @@ class TestMainFunction:
         output = buf.getvalue()
         assert "stale_func" in output
         assert "Removed stale test blocks:" in output
+
+
+# ── auto-generated: main ──
+class TestMainFunctionDirect:
+    """Tests that exercise cst.main() directly by patching Path.exists and collaborators."""
+
+    def test_main_py_missing_exits_1_direct(self, mocker, capsys):
+        """cst.main() exits with code 1 when main.py does not exist (Path.exists → False)."""
+        mocker.patch.object(cst.Path, "exists", return_value=False)
+        with pytest.raises(SystemExit) as exc_info:
+            cst.main()
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "ERROR" in captured.err
+
+    def test_test_py_missing_exits_0_direct(self, mocker, capsys):
+        """cst.main() exits with code 0 and prints SKIP when test file is absent."""
+        # First call (main.py check) → True, second call (test_py check) → False
+        mocker.patch.object(cst.Path, "exists", side_effect=[True, False])
+        with pytest.raises(SystemExit) as exc_info:
+            cst.main()
+        assert exc_info.value.code == 0
+        captured = capsys.readouterr()
+        assert "SKIP" in captured.out
+
+    def test_no_stale_blocks_prints_message_direct(self, mocker, capsys):
+        """cst.main() prints 'No stale test blocks found.' when cleanup returns empty list."""
+        mocker.patch.object(cst.Path, "exists", return_value=True)
+        mocker.patch.object(cst, "get_main_functions", return_value={"func1", "func2"})
+        mocker.patch.object(cst, "cleanup_stale_tests", return_value=[])
+        cst.main()
+        captured = capsys.readouterr()
+        assert "No stale test blocks found." in captured.out
+
+    def test_removed_blocks_prints_names_direct(self, mocker, capsys):
+        """cst.main() prints removed function names when cleanup returns a non-empty list."""
+        mocker.patch.object(cst.Path, "exists", return_value=True)
+        mocker.patch.object(cst, "get_main_functions", return_value={"keep_me"})
+        mocker.patch.object(cst, "cleanup_stale_tests", return_value=["stale_one", "stale_two"])
+        cst.main()
+        captured = capsys.readouterr()
+        assert "Removed stale test blocks:" in captured.out
+        assert "stale_one" in captured.out
+        assert "stale_two" in captured.out

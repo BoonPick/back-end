@@ -9,6 +9,7 @@ sys.modules.setdefault('pdfplumber', MagicMock())
 import pytest
 from datetime import datetime
 from crawling_noti import extract_category_from_title, parse_notice_date
+import crawling_noti as _crawling_noti_mod
 
 
 class TestExtractCategoryFromTitle:
@@ -78,13 +79,13 @@ from crawling_noti import get_db_connection, DB_CONFIG
 
 class TestGetDbConnection:
     def test_calls_connect_with_db_config(self, mocker):
-        mock_connect = mocker.patch("crawling_noti.mysql.connector.connect")
+        mock_connect = mocker.patch("mysql.connector.connect")
         get_db_connection()
         mock_connect.assert_called_once_with(**DB_CONFIG)
 
     def test_returns_connection_object(self, mocker):
         mock_conn = MagicMock()
-        mocker.patch("crawling_noti.mysql.connector.connect", return_value=mock_conn)
+        mocker.patch("mysql.connector.connect", return_value=mock_conn)
         result = get_db_connection()
         assert result is mock_conn
 
@@ -219,7 +220,7 @@ class TestCrawlNotices:
         """One board page with one new notice → saved_count == 1 per board."""
         mock_conn = MagicMock()
         mock_cursor = mock_conn.cursor.return_value
-        mocker.patch("crawling_noti.get_db_connection", return_value=mock_conn)
+        mocker.patch.object(_crawling_noti_mod, 'get_db_connection', return_value=mock_conn)
 
         notice = self._make_notice(pk=101)
         list_resp = MagicMock()
@@ -236,13 +237,11 @@ class TestCrawlNotices:
         detail_resp2 = MagicMock()
         detail_resp2.json.return_value = self._detail_response()
 
-        mocker.patch(
-            "crawling_noti.requests.get",
-            side_effect=[list_resp, detail_resp, list_resp2, detail_resp2],
-        )
-        mocker.patch("crawling_noti.notice_exists", return_value=False)
-        mocker.patch("crawling_noti.save_notice")
-        mocker.patch("crawling_noti.find_pdf_urls", return_value=[])
+        mock_requests = mocker.patch.object(_crawling_noti_mod, 'requests')
+        mock_requests.get.side_effect = [list_resp, detail_resp, list_resp2, detail_resp2]
+        mocker.patch.object(_crawling_noti_mod, 'notice_exists', return_value=False)
+        mocker.patch.object(_crawling_noti_mod, 'save_notice')
+        mocker.patch.object(_crawling_noti_mod, 'find_pdf_urls', return_value=[])
 
         result = crawl_notices(page_count=1)
         assert result == 2
@@ -250,14 +249,15 @@ class TestCrawlNotices:
     def test_empty_data_returns_zero_saved(self, mocker):
         """API returns no list data → nothing saved."""
         mock_conn = MagicMock()
-        mocker.patch("crawling_noti.get_db_connection", return_value=mock_conn)
+        mocker.patch.object(_crawling_noti_mod, 'get_db_connection', return_value=mock_conn)
 
         empty_resp = MagicMock()
         empty_resp.json.return_value = {"data": {}}
-        mocker.patch("crawling_noti.requests.get", return_value=empty_resp)
-        mocker.patch("crawling_noti.notice_exists", return_value=False)
-        mock_save = mocker.patch("crawling_noti.save_notice")
-        mocker.patch("crawling_noti.find_pdf_urls", return_value=[])
+        mock_requests = mocker.patch.object(_crawling_noti_mod, 'requests')
+        mock_requests.get.return_value = empty_resp
+        mocker.patch.object(_crawling_noti_mod, 'notice_exists', return_value=False)
+        mock_save = mocker.patch.object(_crawling_noti_mod, 'save_notice')
+        mocker.patch.object(_crawling_noti_mod, 'find_pdf_urls', return_value=[])
 
         result = crawl_notices(page_count=1)
         assert result == 0
@@ -266,16 +266,17 @@ class TestCrawlNotices:
     def test_notice_already_exists_is_skipped(self, mocker):
         """notice_exists returns True → save_notice never called."""
         mock_conn = MagicMock()
-        mocker.patch("crawling_noti.get_db_connection", return_value=mock_conn)
+        mocker.patch.object(_crawling_noti_mod, 'get_db_connection', return_value=mock_conn)
 
         notice = self._make_notice(pk=301)
         list_resp = MagicMock()
         list_resp.json.return_value = self._list_response(None, [notice])
 
-        mocker.patch("crawling_noti.requests.get", return_value=list_resp)
-        mocker.patch("crawling_noti.notice_exists", return_value=True)
-        mock_save = mocker.patch("crawling_noti.save_notice")
-        mocker.patch("crawling_noti.find_pdf_urls", return_value=[])
+        mock_requests = mocker.patch.object(_crawling_noti_mod, 'requests')
+        mock_requests.get.return_value = list_resp
+        mocker.patch.object(_crawling_noti_mod, 'notice_exists', return_value=True)
+        mock_save = mocker.patch.object(_crawling_noti_mod, 'save_notice')
+        mocker.patch.object(_crawling_noti_mod, 'find_pdf_urls', return_value=[])
 
         result = crawl_notices(page_count=1)
         assert result == 0
@@ -284,7 +285,7 @@ class TestCrawlNotices:
     def test_conn_commit_called_per_saved_notice(self, mocker):
         """conn.commit() must be called once for each saved notice."""
         mock_conn = MagicMock()
-        mocker.patch("crawling_noti.get_db_connection", return_value=mock_conn)
+        mocker.patch.object(_crawling_noti_mod, 'get_db_connection', return_value=mock_conn)
 
         notice = self._make_notice(pk=401)
         list_resp = MagicMock()
@@ -294,13 +295,11 @@ class TestCrawlNotices:
         empty_resp = MagicMock()
         empty_resp.json.return_value = {"data": {}}
 
-        mocker.patch(
-            "crawling_noti.requests.get",
-            side_effect=[list_resp, MagicMock(**{"json.return_value": self._detail_response()}), empty_resp],
-        )
-        mocker.patch("crawling_noti.notice_exists", return_value=False)
-        mocker.patch("crawling_noti.save_notice")
-        mocker.patch("crawling_noti.find_pdf_urls", return_value=[])
+        mock_requests = mocker.patch.object(_crawling_noti_mod, 'requests')
+        mock_requests.get.side_effect = [list_resp, MagicMock(**{"json.return_value": self._detail_response()}), empty_resp]
+        mocker.patch.object(_crawling_noti_mod, 'notice_exists', return_value=False)
+        mocker.patch.object(_crawling_noti_mod, 'save_notice')
+        mocker.patch.object(_crawling_noti_mod, 'find_pdf_urls', return_value=[])
 
         crawl_notices(page_count=1)
         assert mock_conn.commit.call_count == 1
@@ -309,14 +308,15 @@ class TestCrawlNotices:
         """cursor.close() and conn.close() are always called (finally block)."""
         mock_conn = MagicMock()
         mock_cursor = mock_conn.cursor.return_value
-        mocker.patch("crawling_noti.get_db_connection", return_value=mock_conn)
+        mocker.patch.object(_crawling_noti_mod, 'get_db_connection', return_value=mock_conn)
 
         empty_resp = MagicMock()
         empty_resp.json.return_value = {"data": {}}
-        mocker.patch("crawling_noti.requests.get", return_value=empty_resp)
-        mocker.patch("crawling_noti.notice_exists", return_value=False)
-        mocker.patch("crawling_noti.save_notice")
-        mocker.patch("crawling_noti.find_pdf_urls", return_value=[])
+        mock_requests = mocker.patch.object(_crawling_noti_mod, 'requests')
+        mock_requests.get.return_value = empty_resp
+        mocker.patch.object(_crawling_noti_mod, 'notice_exists', return_value=False)
+        mocker.patch.object(_crawling_noti_mod, 'save_notice')
+        mocker.patch.object(_crawling_noti_mod, 'find_pdf_urls', return_value=[])
 
         crawl_notices(page_count=1)
         mock_cursor.close.assert_called_once()
@@ -325,7 +325,7 @@ class TestCrawlNotices:
     def test_save_notice_called_with_correct_args(self, mocker):
         """Verify save_notice receives the expected arguments for a known notice."""
         mock_conn = MagicMock()
-        mocker.patch("crawling_noti.get_db_connection", return_value=mock_conn)
+        mocker.patch.object(_crawling_noti_mod, 'get_db_connection', return_value=mock_conn)
 
         notice = {
             "pkId": 501,
@@ -345,13 +345,11 @@ class TestCrawlNotices:
         empty_resp = MagicMock()
         empty_resp.json.return_value = {"data": {}}
 
-        mocker.patch(
-            "crawling_noti.requests.get",
-            side_effect=[list_resp, detail_resp, empty_resp],
-        )
-        mocker.patch("crawling_noti.notice_exists", return_value=False)
-        mock_save = mocker.patch("crawling_noti.save_notice")
-        mocker.patch("crawling_noti.find_pdf_urls", return_value=[])
+        mock_requests = mocker.patch.object(_crawling_noti_mod, 'requests')
+        mock_requests.get.side_effect = [list_resp, detail_resp, empty_resp]
+        mocker.patch.object(_crawling_noti_mod, 'notice_exists', return_value=False)
+        mock_save = mocker.patch.object(_crawling_noti_mod, 'save_notice')
+        mocker.patch.object(_crawling_noti_mod, 'find_pdf_urls', return_value=[])
 
         crawl_notices(page_count=1)
 
@@ -363,3 +361,161 @@ class TestCrawlNotices:
         assert args[3] == "장학"                       # category extracted from title
         assert "501" in args[4]                        # url contains pkId
         assert kwargs.get("posted_at") == datetime(2026, 4, 24, 13, 27, 3)
+
+
+# ── auto-generated: crawl_notices_pdf_branch ──
+import os
+
+
+class TestCrawlNoticesPdfBranch:
+    """Tests for the PDF handling branch inside crawl_notices() (lines 172-193)."""
+
+    @staticmethod
+    def _list_response(notices):
+        return {"data": {"list": notices}}
+
+    @staticmethod
+    def _detail_response(content_html="<p>Notice body</p>"):
+        return {"data": {"content": content_html, "createDate": "2026-04-24 13:27:03"}}
+
+    def _make_notice(self, pk=601, title="[공지] PDF Notice"):
+        return {
+            "pkId": pk,
+            "title": title,
+            "category": "",
+            "createDate": "2026-04-24 13:27:03",
+        }
+
+    def _setup_mocks(self, mocker, notice, pdf_urls, extract_result, detail_html="<p>Body</p>"):
+        """Wire up all mocks and return (mock_requests, mock_download, mock_extract, mock_save)."""
+        mock_conn = MagicMock()
+        mocker.patch.object(_crawling_noti_mod, 'get_db_connection', return_value=mock_conn)
+
+        list_resp = MagicMock()
+        list_resp.json.return_value = self._list_response([notice])
+
+        detail_resp = MagicMock()
+        detail_resp.json.return_value = self._detail_response(detail_html)
+
+        # Second board returns empty so only one board processes PDFs
+        empty_resp = MagicMock()
+        empty_resp.json.return_value = {"data": {}}
+
+        mock_requests = mocker.patch.object(_crawling_noti_mod, 'requests')
+        mock_requests.get.side_effect = [list_resp, detail_resp, empty_resp]
+
+        mocker.patch.object(_crawling_noti_mod, 'notice_exists', return_value=False)
+        mock_save = mocker.patch.object(_crawling_noti_mod, 'save_notice')
+        mocker.patch.object(_crawling_noti_mod, 'find_pdf_urls', return_value=pdf_urls)
+        mock_download = mocker.patch.object(_crawling_noti_mod, 'download_pdf')
+        mock_extract = mocker.patch.object(_crawling_noti_mod, 'extract_pdf_text', return_value=extract_result)
+
+        return mock_requests, mock_download, mock_extract, mock_save
+
+    def test_download_and_extract_called_for_each_pdf_url(self, mocker):
+        """When find_pdf_urls returns URLs, download_pdf and extract_pdf_text are called once per URL."""
+        notice = self._make_notice(pk=601)
+        pdf_urls = ["https://example.com/file1.pdf", "https://example.com/file2.pdf"]
+        extract_result = {"pages": [], "tables": []}
+
+        _, mock_download, mock_extract, _ = self._setup_mocks(
+            mocker, notice, pdf_urls, extract_result
+        )
+
+        crawl_notices(page_count=1)
+
+        assert mock_download.call_count == 2
+        assert mock_extract.call_count == 2
+        # Verify the temp path pattern: temp_{pkId}_{idx}.pdf
+        mock_download.assert_any_call("https://example.com/file1.pdf", "temp_601_1.pdf")
+        mock_download.assert_any_call("https://example.com/file2.pdf", "temp_601_2.pdf")
+
+    def test_pdf_text_and_table_content_included_in_save_notice(self, mocker):
+        """Page text and table rows from extract_pdf_text are included in raw_content passed to save_notice."""
+        notice = self._make_notice(pk=602)
+        pdf_urls = ["https://example.com/report.pdf"]
+        extract_result = {
+            "pages": [{"page": 1, "text": "Important PDF text"}],
+            "tables": [{"page": 2, "data": [["Col A", "Col B"], ["Val 1", "Val 2"]]}],
+        }
+
+        _, _, _, mock_save = self._setup_mocks(mocker, notice, pdf_urls, extract_result)
+
+        crawl_notices(page_count=1)
+
+        assert mock_save.call_count == 1
+        args, _ = mock_save.call_args
+        raw_content = args[5]  # positional: cursor, title, source_name, category, url, raw_content
+        assert "Important PDF text" in raw_content
+        assert "[PDF 1 - Page 1]" in raw_content
+        assert "Col A" in raw_content
+        assert "[PDF 1 - Table Page 2]" in raw_content
+
+    def test_pdf_exception_handled_gracefully_no_raise(self, mocker):
+        """When download_pdf raises, the error message is appended to content and no exception propagates."""
+        notice = self._make_notice(pk=603)
+        pdf_urls = ["https://example.com/broken.pdf"]
+
+        mock_conn = MagicMock()
+        mocker.patch.object(_crawling_noti_mod, 'get_db_connection', return_value=mock_conn)
+
+        list_resp = MagicMock()
+        list_resp.json.return_value = self._list_response([notice])
+        detail_resp = MagicMock()
+        detail_resp.json.return_value = self._detail_response("<p>Body</p>")
+        empty_resp = MagicMock()
+        empty_resp.json.return_value = {"data": {}}
+
+        mock_requests = mocker.patch.object(_crawling_noti_mod, 'requests')
+        mock_requests.get.side_effect = [list_resp, detail_resp, empty_resp]
+
+        mocker.patch.object(_crawling_noti_mod, 'notice_exists', return_value=False)
+        mock_save = mocker.patch.object(_crawling_noti_mod, 'save_notice')
+        mocker.patch.object(_crawling_noti_mod, 'find_pdf_urls', return_value=pdf_urls)
+        mocker.patch.object(_crawling_noti_mod, 'download_pdf', side_effect=RuntimeError("connection refused"))
+        mocker.patch.object(_crawling_noti_mod, 'extract_pdf_text')
+
+        # Must not raise
+        result = crawl_notices(page_count=1)
+
+        # Notice is still saved despite the PDF error
+        assert mock_save.call_count == 1
+        args, _ = mock_save.call_args
+        raw_content = args[5]
+        assert "[PDF 오류:" in raw_content
+        assert "connection refused" in raw_content
+
+    def test_pdf_temp_file_cleaned_up_in_finally(self, mocker):
+        """The temp PDF file is removed in the finally block even when extraction succeeds."""
+        notice = self._make_notice(pk=604)
+        pdf_urls = ["https://example.com/clean.pdf"]
+        extract_result = {"pages": [{"page": 1, "text": "page text"}], "tables": []}
+
+        mock_conn = MagicMock()
+        mocker.patch.object(_crawling_noti_mod, 'get_db_connection', return_value=mock_conn)
+
+        list_resp = MagicMock()
+        list_resp.json.return_value = self._list_response([notice])
+        detail_resp = MagicMock()
+        detail_resp.json.return_value = self._detail_response("<p>Body</p>")
+        empty_resp = MagicMock()
+        empty_resp.json.return_value = {"data": {}}
+
+        mock_requests = mocker.patch.object(_crawling_noti_mod, 'requests')
+        mock_requests.get.side_effect = [list_resp, detail_resp, empty_resp]
+
+        mocker.patch.object(_crawling_noti_mod, 'notice_exists', return_value=False)
+        mocker.patch.object(_crawling_noti_mod, 'save_notice')
+        mocker.patch.object(_crawling_noti_mod, 'find_pdf_urls', return_value=pdf_urls)
+        mocker.patch.object(_crawling_noti_mod, 'download_pdf')
+        mocker.patch.object(_crawling_noti_mod, 'extract_pdf_text', return_value=extract_result)
+
+        # Simulate temp file existing so the finally branch actually calls os.remove
+        mock_os_path_exists = mocker.patch.object(_crawling_noti_mod.os.path, 'exists', return_value=True)
+        mock_os_remove = mocker.patch.object(_crawling_noti_mod.os, 'remove')
+
+        crawl_notices(page_count=1)
+
+        expected_pdf_path = "temp_604_1.pdf"
+        mock_os_path_exists.assert_any_call(expected_pdf_path)
+        mock_os_remove.assert_called_once_with(expected_pdf_path)

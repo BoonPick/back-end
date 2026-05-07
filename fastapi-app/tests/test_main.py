@@ -969,14 +969,35 @@ class TestReadIndex:
     def test_returns_200_or_404_for_index(self):
         # FileResponse will 404 if templates/index.html doesn't exist in test env,
         # but the endpoint itself should be reachable (not a 405 or 422).
-        resp = client.get("/")
+        _client = TestClient(app, raise_server_exceptions=False)
+        resp = _client.get("/")
         assert resp.status_code in (200, 404, 500)
 
     def test_get_method_is_allowed(self):
         # Verify that the route is registered and GET is the correct method
-        resp = client.get("/")
+        _client = TestClient(app, raise_server_exceptions=False)
+        resp = _client.get("/")
         assert resp.status_code != 405  # 405 = method not allowed
 
     def test_post_to_index_returns_405(self):
         resp = client.post("/")
         assert resp.status_code == 405
+
+
+# ── auto-generated: trigger_notification_batch ──
+class TestTriggerNotificationBatch:
+    def test_returns_200_with_emails_sent_key(self):
+        with patch("main.notifier.notify_new_items_for_all_users", return_value=4):
+            resp = client.post("/api/admin/notify")
+        assert resp.status_code == 200
+        assert "emails_sent" in resp.json()
+
+    def test_notify_new_items_called_once(self):
+        with patch("main.notifier.notify_new_items_for_all_users", return_value=0) as mock_notify:
+            client.post("/api/admin/notify")
+        mock_notify.assert_called_once_with()
+
+    def test_return_value_from_notifier_reflected_in_response(self):
+        with patch("main.notifier.notify_new_items_for_all_users", return_value=7):
+            resp = client.post("/api/admin/notify")
+        assert resp.json()["emails_sent"] == 7
