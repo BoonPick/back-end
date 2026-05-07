@@ -8,7 +8,11 @@ sys.modules.setdefault('pdfplumber', MagicMock())
 
 import pytest
 from datetime import datetime
-from crawling_noti import extract_category_from_title, parse_notice_date
+from crawling_noti import (
+    extract_category_from_title, parse_notice_date,
+    get_db_connection, DB_CONFIG, notice_exists,
+    save_notice, crawl_notices,
+)
 
 
 class TestExtractCategoryFromTitle:
@@ -72,8 +76,6 @@ class TestParseNoticeDate:
 
 
 # ── auto-generated: get_db_connection ──
-import mysql.connector
-from crawling_noti import get_db_connection, DB_CONFIG
 
 
 class TestGetDbConnection:
@@ -90,7 +92,6 @@ class TestGetDbConnection:
 
 
 # ── auto-generated: notice_exists ──
-from crawling_noti import notice_exists
 
 
 class TestNoticeExists:
@@ -121,7 +122,6 @@ class TestNoticeExists:
 
 
 # ── auto-generated: save_notice ──
-from crawling_noti import save_notice
 
 
 class TestSaveNotice:
@@ -191,9 +191,6 @@ class TestSaveNotice:
 
 
 # ── auto-generated: crawl_notices ──
-import json
-from unittest.mock import call, patch
-from crawling_noti import crawl_notices
 
 
 class TestCrawlNotices:
@@ -272,7 +269,14 @@ class TestCrawlNotices:
         list_resp = MagicMock()
         list_resp.json.return_value = self._list_response(None, [notice])
 
-        mocker.patch("crawling_noti.requests.get", return_value=list_resp)
+        # Board 2 returns empty list → no detail fetch.
+        empty_resp = MagicMock()
+        empty_resp.json.return_value = {"data": {}}
+
+        mocker.patch(
+            "crawling_noti.requests.get",
+            side_effect=[list_resp, empty_resp],
+        )
         mocker.patch("crawling_noti.notice_exists", return_value=True)
         mock_save = mocker.patch("crawling_noti.save_notice")
         mocker.patch("crawling_noti.find_pdf_urls", return_value=[])
@@ -290,13 +294,16 @@ class TestCrawlNotices:
         list_resp = MagicMock()
         list_resp.json.return_value = self._list_response(None, [notice])
 
+        detail_resp = MagicMock()
+        detail_resp.json.return_value = self._detail_response()
+
         # Second board returns empty
         empty_resp = MagicMock()
         empty_resp.json.return_value = {"data": {}}
 
         mocker.patch(
             "crawling_noti.requests.get",
-            side_effect=[list_resp, MagicMock(**{"json.return_value": self._detail_response()}), empty_resp],
+            side_effect=[list_resp, detail_resp, empty_resp],
         )
         mocker.patch("crawling_noti.notice_exists", return_value=False)
         mocker.patch("crawling_noti.save_notice")
