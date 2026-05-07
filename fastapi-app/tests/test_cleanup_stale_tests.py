@@ -18,20 +18,20 @@ import cleanup_stale_tests as cst
 class TestGetMainFunctions:
     def test_returns_top_level_function_names(self, tmp_path):
         src = tmp_path / "main.py"
-        src.write_text("def foo(): pass\ndef bar(): pass\n")
+        src.write_text("def foo(): pass\ndef bar(): pass\n", encoding="utf-8")
         result = cst.get_main_functions(src)
         assert "foo" in result
         assert "bar" in result
 
     def test_returns_async_function_names(self, tmp_path):
         src = tmp_path / "main.py"
-        src.write_text("async def baz(): pass\n")
+        src.write_text("async def baz(): pass\n", encoding="utf-8")
         result = cst.get_main_functions(src)
         assert "baz" in result
 
     def test_empty_file_returns_empty_set(self, tmp_path):
         src = tmp_path / "main.py"
-        src.write_text("")
+        src.write_text("", encoding="utf-8")
         result = cst.get_main_functions(src)
         assert result == set()
 
@@ -41,7 +41,7 @@ class TestGetMainFunctions:
             def outer():
                 def inner():
                     pass
-        """))
+        """), encoding="utf-8")
         result = cst.get_main_functions(src)
         assert "outer" in result
         assert "inner" in result
@@ -52,7 +52,7 @@ class TestGetMainFunctions:
             class MyClass:
                 def method(self): pass
             def top_level(): pass
-        """))
+        """), encoding="utf-8")
         result = cst.get_main_functions(src)
         assert "top_level" in result
         assert "method" in result
@@ -65,7 +65,7 @@ class TestGetMainFunctions:
 class TestCleanupStaleTests:
     def _make_test_file(self, path: Path, content: str) -> Path:
         test_file = path / "test_main.py"
-        test_file.write_text(textwrap.dedent(content))
+        test_file.write_text(textwrap.dedent(content), encoding="utf-8")
         return test_file
 
     def test_removes_stale_block(self, tmp_path):
@@ -78,7 +78,7 @@ class TestCleanupStaleTests:
         test_file = self._make_test_file(tmp_path, content)
         removed = cst.cleanup_stale_tests(test_file, main_functions=set())
         assert "old_func" in removed
-        assert "class TestOldFunc" not in test_file.read_text()
+        assert "class TestOldFunc" not in test_file.read_text(encoding="utf-8")
 
     def test_keeps_valid_block(self, tmp_path):
         content = """\
@@ -90,7 +90,7 @@ class TestCleanupStaleTests:
         test_file = self._make_test_file(tmp_path, content)
         removed = cst.cleanup_stale_tests(test_file, main_functions={"existing_func"})
         assert removed == []
-        assert "class TestExistingFunc" in test_file.read_text()
+        assert "class TestExistingFunc" in test_file.read_text(encoding="utf-8")
 
     def test_returns_empty_list_when_nothing_stale(self, tmp_path):
         content = """\
@@ -137,7 +137,7 @@ class TestCleanupStaleTests:
         removed = cst.cleanup_stale_tests(test_file, main_functions=set())
         assert "func_a" in removed
         assert "func_b" in removed
-        text = test_file.read_text()
+        text = test_file.read_text(encoding="utf-8")
         assert "TestFuncA" not in text
         assert "TestFuncB" not in text
 
@@ -156,7 +156,7 @@ class TestCleanupStaleTests:
         test_file = self._make_test_file(tmp_path, content)
         removed = cst.cleanup_stale_tests(test_file, main_functions={"keep_me"})
         assert removed == ["remove_me"]
-        text = test_file.read_text()
+        text = test_file.read_text(encoding="utf-8")
         assert "TestKeepMe" in text
         assert "TestRemoveMe" not in text
 
@@ -180,7 +180,7 @@ class TestMain:
     def test_skip_message_when_test_py_missing(self, tmp_path, monkeypatch):
         import subprocess, sys as _sys
         main_py = tmp_path / "main.py"
-        main_py.write_text("def hello(): pass\n")
+        main_py.write_text("def hello(): pass\n", encoding="utf-8")
         (tmp_path / "tests").mkdir()
         scripts_dir = Path(__file__).resolve().parent.parent / "scripts"
         # Patch the hardcoded paths by monkey-patching via env vars isn't possible,
@@ -253,7 +253,7 @@ class TestMainFunction:
 
     def test_test_py_missing_exits_with_code_0(self, tmp_path, monkeypatch, capsys):
         main_py = tmp_path / "main.py"
-        main_py.write_text("def hello(): pass\n")
+        main_py.write_text("def hello(): pass\n", encoding="utf-8")
         test_py = tmp_path / "tests" / "test_main.py"
         monkeypatch.setattr(cst, "main", lambda: _run_main_with_paths(main_py, test_py))
         with pytest.raises(SystemExit) as exc_info:
@@ -262,7 +262,7 @@ class TestMainFunction:
 
     def test_test_py_missing_prints_skip_message(self, tmp_path, monkeypatch, capsys):
         main_py = tmp_path / "main.py"
-        main_py.write_text("def hello(): pass\n")
+        main_py.write_text("def hello(): pass\n", encoding="utf-8")
         test_py = tmp_path / "tests" / "test_main.py"
         monkeypatch.setattr(cst, "main", lambda: _run_main_with_paths(main_py, test_py))
         import io
@@ -275,11 +275,11 @@ class TestMainFunction:
 
     def test_successful_run_no_removals_prints_no_stale(self, tmp_path, monkeypatch, capsys):
         main_py = tmp_path / "main.py"
-        main_py.write_text("def my_func(): pass\n")
+        main_py.write_text("def my_func(): pass\n", encoding="utf-8")
         tests_dir = tmp_path / "tests"
         tests_dir.mkdir()
         test_py = tests_dir / "test_main.py"
-        test_py.write_text("def test_plain():\n    assert True\n")
+        test_py.write_text("def test_plain():\n    assert True\n", encoding="utf-8")
         monkeypatch.setattr(cst, "main", lambda: _run_main_with_paths(main_py, test_py))
         import io
         from contextlib import redirect_stdout
@@ -290,7 +290,7 @@ class TestMainFunction:
 
     def test_successful_run_with_removals_prints_removed_names(self, tmp_path, monkeypatch, capsys):
         main_py = tmp_path / "main.py"
-        main_py.write_text("def existing_func(): pass\n")
+        main_py.write_text("def existing_func(): pass\n", encoding="utf-8")
         tests_dir = tmp_path / "tests"
         tests_dir.mkdir()
         test_py = tests_dir / "test_main.py"
@@ -298,7 +298,8 @@ class TestMainFunction:
             "# ── auto-generated: stale_func ──\n"
             "class TestStaleFunc:\n"
             "    def test_x(self):\n"
-            "        pass\n"
+            "        pass\n",
+            encoding="utf-8",
         )
         monkeypatch.setattr(cst, "main", lambda: _run_main_with_paths(main_py, test_py))
         import io
