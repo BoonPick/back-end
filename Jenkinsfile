@@ -82,6 +82,7 @@ pipeline {
                       --cov=. \
                       --cov-report=html:../htmlcov \
                       --cov-report=term \
+                      --cov-report=json:../coverage.json \
                     || [ $? -eq 5 ]
                 '''
             }
@@ -103,6 +104,7 @@ pipeline {
                         alwaysLinkToLastBuild: true,
                         allowMissing: true
                     ])
+                    archiveArtifacts artifacts: 'coverage.json', fingerprint: true, allowEmptyArchive: true
                 }
             }
         }
