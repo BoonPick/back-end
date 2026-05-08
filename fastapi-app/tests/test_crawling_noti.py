@@ -370,3 +370,329 @@ class TestCrawlNotices:
         assert args[3] == "장학"                       # category extracted from title
         assert "501" in args[4]                        # url contains pkId
         assert kwargs.get("posted_at") == datetime(2026, 4, 24, 13, 27, 3)
+
+
+# ── auto-generated: crawl_notices_pdf ──
+
+
+class TestCrawlNoticesPdfBranch:
+    """Tests for the PDF branch inside crawl_notices (lines 172-193)."""
+
+    @staticmethod
+    def _list_response(notices):
+        return {"data": {"list": notices}}
+
+    @staticmethod
+    def _detail_response(content_html="<p>Body text</p>", create_date="2026-04-24 13:27:03"):
+        return {"data": {"content": content_html, "createDate": create_date}}
+
+    def _make_notice(self, pk=701, title="PDF Notice"):
+        return {"pkId": pk, "title": title, "category": "", "createDate": "2026-04-24 13:27:03"}
+
+    def _setup_common_mocks(self, mocker, notice, detail_resp_data):
+        """Patch DB, requests, notice_exists, save_notice; return mock_conn."""
+        mock_conn = MagicMock()
+        mocker.patch("crawling_noti.get_db_connection", return_value=mock_conn)
+
+        list_resp = MagicMock()
+        list_resp.json.return_value = self._list_response([notice])
+
+        detail_resp = MagicMock()
+        detail_resp.json.return_value = detail_resp_data
+
+        # Second board returns empty so we only deal with board 1
+        empty_resp = MagicMock()
+        empty_resp.json.return_value = {"data": {}}
+
+        mocker.patch(
+            "crawling_noti.requests.get",
+            side_effect=[list_resp, detail_resp, empty_resp],
+        )
+        mocker.patch("crawling_noti.notice_exists", return_value=False)
+        mocker.patch("crawling_noti.save_notice")
+        return mock_conn
+
+    # ------------------------------------------------------------------
+    # 1. download_pdf and extract_pdf_text are called for each pdf URL
+    # ------------------------------------------------------------------
+    def test_download_pdf_called_for_each_url(self, mocker):
+        """download_pdf must be invoked once per PDF URL found."""
+        notice = self._make_notice(pk=701)
+        detail_data = self._detail_response()
+        self._setup_common_mocks(mocker, notice, detail_data)
+
+        pdf_urls = ["http://cdn.example.com/a.pdf", "http://cdn.example.com/b.pdf"]
+        mocker.patch("crawling_noti.find_pdf_urls", return_value=pdf_urls)
+        mock_download = mocker.patch("crawling_noti.download_pdf")
+        mock_extract = mocker.patch(
+            "crawling_noti.extract_pdf_text",
+            return_value={"pages": [], "tables": []},
+        )
+        mocker.patch("crawling_noti.os.path.exists", return_value=False)
+
+        crawl_notices(page_count=1)
+
+        assert mock_download.call_count == 2
+        mock_download.assert_any_call("http://cdn.example.com/a.pdf", "temp_701_1.pdf")
+        mock_download.assert_any_call("http://cdn.example.com/b.pdf", "temp_701_2.pdf")
+
+    def test_extract_pdf_text_called_after_download(self, mocker):
+        """extract_pdf_text must be called with the correct temp path."""
+        notice = self._make_notice(pk=702)
+        detail_data = self._detail_response()
+        self._setup_common_mocks(mocker, notice, detail_data)
+
+        mocker.patch("crawling_noti.find_pdf_urls", return_value=["http://cdn.example.com/doc.pdf"])
+        mocker.patch("crawling_noti.download_pdf")
+        mock_extract = mocker.patch(
+            "crawling_noti.extract_pdf_text",
+            return_value={"pages": [], "tables": []},
+        )
+        mocker.patch("crawling_noti.os.path.exists", return_value=False)
+
+        crawl_notices(page_count=1)
+
+        mock_extract.assert_called_once_with("temp_702_1.pdf")
+
+    # ------------------------------------------------------------------
+    # 2. Page and table content from extract_pdf_text ends up in raw_content
+    # ------------------------------------------------------------------
+    def test_pdf_page_text_appended_to_content(self, mocker):
+        """Text from PDF pages is included in the raw_content passed to save_notice."""
+        notice = self._make_notice(pk=703)
+        detail_data = self._detail_response()
+        self._setup_common_mocks(mocker, notice, detail_data)
+
+        mocker.patch("crawling_noti.find_pdf_urls", return_value=["http://cdn.example.com/p.pdf"])
+        mocker.patch("crawling_noti.download_pdf")
+        mocker.patch(
+            "crawling_noti.extract_pdf_text",
+            return_value={
+                "pages": [{"page": 1, "text": "Page one content"}],
+                "tables": [],
+            },
+        )
+        mocker.patch("crawling_noti.os.path.exists", return_value=False)
+        mock_save = mocker.patch("crawling_noti.save_notice")
+
+        crawl_notices(page_count=1)
+
+        args, _ = mock_save.call_args
+        raw_content = args[5]
+        assert "[PDF 1 - Page 1]" in raw_content
+        assert "Page one content" in raw_content
+
+    def test_pdf_table_text_appended_to_content(self, mocker):
+        """Table data from PDF is included in the raw_content passed to save_notice."""
+        notice = self._make_notice(pk=704)
+        detail_data = self._detail_response()
+        self._setup_common_mocks(mocker, notice, detail_data)
+
+        mocker.patch("crawling_noti.find_pdf_urls", return_value=["http://cdn.example.com/t.pdf"])
+        mocker.patch("crawling_noti.download_pdf")
+        mocker.patch(
+            "crawling_noti.extract_pdf_text",
+            return_value={
+                "pages": [],
+                "tables": [{"page": 2, "data": [["Col A", "Col B"], ["Val 1", "Val 2"]]}],
+            },
+        )
+        mocker.patch("crawling_noti.os.path.exists", return_value=False)
+        mock_save = mocker.patch("crawling_noti.save_notice")
+
+        crawl_notices(page_count=1)
+
+        args, _ = mock_save.call_args
+        raw_content = args[5]
+        assert "[PDF 1 - Table Page 2]" in raw_content
+        assert "Col A" in raw_content
+
+    # ------------------------------------------------------------------
+    # 3. Exception path: download failure → error message in raw_content
+    # ------------------------------------------------------------------
+    def test_download_exception_appends_error_message(self, mocker):
+        """If download_pdf raises, an error message is appended to content_parts."""
+        notice = self._make_notice(pk=705)
+        detail_data = self._detail_response()
+        self._setup_common_mocks(mocker, notice, detail_data)
+
+        mocker.patch("crawling_noti.find_pdf_urls", return_value=["http://cdn.example.com/fail.pdf"])
+        mocker.patch("crawling_noti.download_pdf", side_effect=Exception("connection refused"))
+        mock_extract = mocker.patch("crawling_noti.extract_pdf_text")
+        mocker.patch("crawling_noti.os.path.exists", return_value=False)
+        mock_save = mocker.patch("crawling_noti.save_notice")
+
+        crawl_notices(page_count=1)
+
+        # extract_pdf_text must NOT be called when download fails
+        mock_extract.assert_not_called()
+
+        # Error text must appear in the content saved to DB
+        args, _ = mock_save.call_args
+        raw_content = args[5]
+        assert "[PDF 오류:" in raw_content
+        assert "connection refused" in raw_content
+
+    def test_extract_exception_appends_error_message(self, mocker):
+        """If extract_pdf_text raises, an error message is appended to content_parts."""
+        notice = self._make_notice(pk=706)
+        detail_data = self._detail_response()
+        self._setup_common_mocks(mocker, notice, detail_data)
+
+        mocker.patch("crawling_noti.find_pdf_urls", return_value=["http://cdn.example.com/bad.pdf"])
+        mocker.patch("crawling_noti.download_pdf")
+        mocker.patch("crawling_noti.extract_pdf_text", side_effect=Exception("corrupt PDF"))
+        mocker.patch("crawling_noti.os.path.exists", return_value=False)
+        mock_save = mocker.patch("crawling_noti.save_notice")
+
+        crawl_notices(page_count=1)
+
+        args, _ = mock_save.call_args
+        raw_content = args[5]
+        assert "[PDF 오류:" in raw_content
+        assert "corrupt PDF" in raw_content
+
+    def test_notice_still_saved_after_pdf_exception(self, mocker):
+        """Even when a PDF fails, the notice is still saved (saved_count incremented)."""
+        notice = self._make_notice(pk=707)
+        detail_data = self._detail_response()
+        self._setup_common_mocks(mocker, notice, detail_data)
+
+        mocker.patch("crawling_noti.find_pdf_urls", return_value=["http://cdn.example.com/e.pdf"])
+        mocker.patch("crawling_noti.download_pdf", side_effect=Exception("timeout"))
+        mocker.patch("crawling_noti.os.path.exists", return_value=False)
+        mock_save = mocker.patch("crawling_noti.save_notice")
+
+        result = crawl_notices(page_count=1)
+
+        assert result == 1
+        mock_save.assert_called_once()
+
+    # ------------------------------------------------------------------
+    # 4. Finally block: os.remove called when temp file exists
+    # ------------------------------------------------------------------
+    def test_finally_removes_temp_pdf_when_exists(self, mocker):
+        """os.remove must be called with the temp PDF path when the file exists."""
+        notice = self._make_notice(pk=708)
+        detail_data = self._detail_response()
+        self._setup_common_mocks(mocker, notice, detail_data)
+
+        mocker.patch("crawling_noti.find_pdf_urls", return_value=["http://cdn.example.com/c.pdf"])
+        mocker.patch("crawling_noti.download_pdf")
+        mocker.patch(
+            "crawling_noti.extract_pdf_text",
+            return_value={"pages": [], "tables": []},
+        )
+        mocker.patch("crawling_noti.os.path.exists", return_value=True)
+        mock_remove = mocker.patch("crawling_noti.os.remove")
+        mocker.patch("crawling_noti.save_notice")
+
+        crawl_notices(page_count=1)
+
+        mock_remove.assert_called_once_with("temp_708_1.pdf")
+
+    def test_finally_does_not_remove_when_file_missing(self, mocker):
+        """os.remove must NOT be called when the temp PDF file does not exist."""
+        notice = self._make_notice(pk=709)
+        detail_data = self._detail_response()
+        self._setup_common_mocks(mocker, notice, detail_data)
+
+        mocker.patch("crawling_noti.find_pdf_urls", return_value=["http://cdn.example.com/m.pdf"])
+        mocker.patch("crawling_noti.download_pdf")
+        mocker.patch(
+            "crawling_noti.extract_pdf_text",
+            return_value={"pages": [], "tables": []},
+        )
+        mocker.patch("crawling_noti.os.path.exists", return_value=False)
+        mock_remove = mocker.patch("crawling_noti.os.remove")
+        mocker.patch("crawling_noti.save_notice")
+
+        crawl_notices(page_count=1)
+
+        mock_remove.assert_not_called()
+
+    def test_finally_removes_file_even_after_exception(self, mocker):
+        """The finally block must clean up temp files even when download raises."""
+        notice = self._make_notice(pk=710)
+        detail_data = self._detail_response()
+        self._setup_common_mocks(mocker, notice, detail_data)
+
+        mocker.patch("crawling_noti.find_pdf_urls", return_value=["http://cdn.example.com/x.pdf"])
+        mocker.patch("crawling_noti.download_pdf", side_effect=Exception("network error"))
+        mocker.patch("crawling_noti.os.path.exists", return_value=True)
+        mock_remove = mocker.patch("crawling_noti.os.remove")
+        mocker.patch("crawling_noti.save_notice")
+
+        crawl_notices(page_count=1)
+
+        mock_remove.assert_called_once_with("temp_710_1.pdf")
+
+    def test_finally_removes_each_pdf_independently(self, mocker):
+        """When multiple PDFs are processed, each temp file is removed individually."""
+        notice = self._make_notice(pk=711)
+        detail_data = self._detail_response()
+        self._setup_common_mocks(mocker, notice, detail_data)
+
+        pdf_urls = [
+            "http://cdn.example.com/one.pdf",
+            "http://cdn.example.com/two.pdf",
+        ]
+        mocker.patch("crawling_noti.find_pdf_urls", return_value=pdf_urls)
+        mocker.patch("crawling_noti.download_pdf")
+        mocker.patch(
+            "crawling_noti.extract_pdf_text",
+            return_value={"pages": [], "tables": []},
+        )
+        mocker.patch("crawling_noti.os.path.exists", return_value=True)
+        mock_remove = mocker.patch("crawling_noti.os.remove")
+        mocker.patch("crawling_noti.save_notice")
+
+        crawl_notices(page_count=1)
+
+        assert mock_remove.call_count == 2
+        mock_remove.assert_any_call("temp_711_1.pdf")
+        mock_remove.assert_any_call("temp_711_2.pdf")
+
+
+# ── auto-generated: crawl_notices_pdf ── (module __main__ block)
+
+
+class TestMainBlock:
+    """Covers line 214: `crawl_notices(page_count=5)` when run as __main__."""
+
+    def test_main_block_calls_crawl_notices_with_page_count_5(self, mocker):
+        """
+        Running the module as __main__ executes crawl_notices(page_count=5).
+
+        runpy.run_module re-executes the module source in a fresh globals dict,
+        so patches applied via 'crawling_noti.<name>' are NOT visible inside
+        that fresh execution.  We must patch at the library level so the fresh
+        module code hits our mocks:
+          - mysql.connector.connect  → returns a MagicMock connection
+          - requests.get             → returns empty-board responses
+          - pdfviewer (already a MagicMock via sys.modules stub at top of file)
+        We verify the observable side-effect: the function completed without
+        raising (no real DB connection was made) and conn.close() was called,
+        confirming the finally-block executed after a 5-page crawl.
+        """
+        import runpy
+
+        # Patch mysql.connector.connect at the library level so the fresh
+        # module namespace picks it up through its own import of mysql.connector.
+        mock_conn = MagicMock()
+        import mysql.connector as _mc
+        mocker.patch.object(_mc, "connect", return_value=mock_conn)
+
+        # All board-list API calls return empty lists → no notices, no DB writes
+        empty_resp = MagicMock()
+        empty_resp.json.return_value = {"data": {}}
+        import requests as _requests
+        mocker.patch.object(_requests, "get", return_value=empty_resp)
+
+        # Execute the __main__ guard — this must call crawl_notices(page_count=5)
+        runpy.run_module("crawling_noti", run_name="__main__", alter_sys=False)
+
+        # Verify conn.close() was invoked — confirms crawl_notices ran fully
+        assert mock_conn.close.called
+        # requests.get must have been called (at least the board-list fetches)
+        assert _requests.get.call_count >= 1  # type: ignore[attr-defined]

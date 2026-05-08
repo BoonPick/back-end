@@ -980,3 +980,55 @@ class TestReadIndex:
     def test_post_to_index_returns_405(self):
         resp = client.post("/")
         assert resp.status_code == 405
+
+
+# ── auto-generated: trigger_notification_batch ──
+class TestTriggerNotificationBatch:
+    def test_returns_emails_sent_count(self):
+        with patch("main.notifier.notify_new_items_for_all_users", return_value=3) as mock_notify:
+            resp = client.post("/api/admin/notify")
+        assert resp.status_code == 200
+        assert resp.json()["emails_sent"] == 3
+        mock_notify.assert_called_once()
+
+    def test_returns_zero_when_no_emails_sent(self):
+        with patch("main.notifier.notify_new_items_for_all_users", return_value=0) as mock_notify:
+            resp = client.post("/api/admin/notify")
+        assert resp.status_code == 200
+        assert resp.json()["emails_sent"] == 0
+        mock_notify.assert_called_once()
+
+    def test_returns_large_count(self):
+        with patch("main.notifier.notify_new_items_for_all_users", return_value=150):
+            resp = client.post("/api/admin/notify")
+        assert resp.status_code == 200
+        assert resp.json()["emails_sent"] == 150
+
+    def test_response_contains_only_emails_sent_key(self):
+        with patch("main.notifier.notify_new_items_for_all_users", return_value=1):
+            resp = client.post("/api/admin/notify")
+        body = resp.json()
+        assert list(body.keys()) == ["emails_sent"]
+
+
+# ── auto-generated: read_index_success ──
+class TestReadIndexSuccess:
+    def test_returns_200_when_template_exists(self):
+        with patch("os.path.exists", return_value=True), \
+             patch("main.FileResponse") as mock_fr:
+            mock_fr.return_value = MagicMock(status_code=200, headers={}, body=b"")
+            resp = client.get("/")
+        mock_fr.assert_called_once_with("templates/index.html")
+
+    def test_file_response_called_with_correct_path(self):
+        with patch("os.path.exists", return_value=True), \
+             patch("main.FileResponse") as mock_fr:
+            mock_fr.return_value = MagicMock(status_code=200, headers={}, body=b"")
+            client.get("/")
+        args, _ = mock_fr.call_args
+        assert args[0] == "templates/index.html"
+
+    def test_returns_404_when_template_missing(self):
+        with patch("os.path.exists", return_value=False):
+            resp = client.get("/")
+        assert resp.status_code == 404

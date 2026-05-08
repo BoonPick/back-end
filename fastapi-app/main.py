@@ -3,7 +3,7 @@ load_dotenv()
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from typing import List, Optional
@@ -830,4 +830,6 @@ def upsert_notification_settings(user_id: int, req: NotificationSettings):
 
 @app.get("/")
 def read_index():
+    if not os.path.exists("templates/index.html"):
+        return Response(status_code=404)
     return FileResponse("templates/index.html")
