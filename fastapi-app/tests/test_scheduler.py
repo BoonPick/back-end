@@ -2,6 +2,7 @@ import sys
 import types
 import logging
 import runpy
+from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
 import pytest
@@ -125,7 +126,7 @@ class TestMainBlock:
     BlockingScheduler` inside its own fresh globals, it picks up our mock.
     """
 
-    SCHEDULER_PATH = "/tmp/back-end/fastapi-app/scheduler.py"
+    SCHEDULER_PATH = str(Path(__file__).resolve().parent.parent / "scheduler.py")
     PATCH_TARGET = "apscheduler.schedulers.blocking.BlockingScheduler"
 
     def _run_main(self, mock_cls):
