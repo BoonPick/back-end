@@ -1,7 +1,9 @@
 import sys
 import types
 import logging
-from unittest.mock import MagicMock
+import runpy
+from pathlib import Path
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -112,3 +114,154 @@ class TestNotificationBatch:
         with caplog.at_level(logging.ERROR, logger="scheduler"):
             notification_batch()
         assert any("connection refused" in r.message for r in caplog.records)
+
+
+# ── auto-generated: __main__ ──
+class TestMainBlock:
+    """Tests for the if __name__ == '__main__' block in scheduler.py.
+
+    Strategy: patch apscheduler.schedulers.blocking.BlockingScheduler at the
+    source (the apscheduler module itself) BEFORE calling runpy.run_path so
+    that when scheduler.py executes `from apscheduler.schedulers.blocking import
+    BlockingScheduler` inside its own fresh globals, it picks up our mock.
+    """
+
+    SCHEDULER_PATH = str(Path(__file__).resolve().parent.parent / "scheduler.py")
+    PATCH_TARGET = "apscheduler.schedulers.blocking.BlockingScheduler"
+
+    def _run_main(self, mock_cls):
+        """Execute the __main__ block via runpy with BlockingScheduler mocked."""
+        runpy.run_path(
+            self.SCHEDULER_PATH,
+            init_globals={"__name__": "__main__"},
+            run_name="__main__",
+        )
+
+    def test_blocking_scheduler_is_instantiated(self, mocker):
+        mock_cls = mocker.MagicMock()
+        mock_instance = mock_cls.return_value
+        mock_instance.start.return_value = None
+        with patch(self.PATCH_TARGET, mock_cls):
+            self._run_main(mock_cls)
+        mock_cls.assert_called_once_with()
+
+    def test_three_jobs_are_added(self, mocker):
+        mock_cls = mocker.MagicMock()
+        mock_instance = mock_cls.return_value
+        mock_instance.start.return_value = None
+        with patch(self.PATCH_TARGET, mock_cls):
+            self._run_main(mock_cls)
+        assert mock_instance.add_job.call_count == 3
+
+    def test_noti_crawl_job_configuration(self, mocker):
+        mock_cls = mocker.MagicMock()
+        mock_instance = mock_cls.return_value
+        mock_instance.start.return_value = None
+        with patch(self.PATCH_TARGET, mock_cls):
+            self._run_main(mock_cls)
+
+        calls = mock_instance.add_job.call_args_list
+        # First job must be noti_crawl
+        first_call = calls[0]
+        args, kwargs = first_call
+        # The job function may be passed positionally or as keyword
+        func = args[0] if args else kwargs.get("func")
+        assert func.__name__ == "noti_crawl"
+        assert kwargs.get("trigger") == "cron"
+        assert kwargs.get("hour") == 2
+        assert kwargs.get("minute") == 15
+        assert kwargs.get("id") == "daily_noti_crawl"
+
+    def test_job_posting_crawl_job_configuration(self, mocker):
+        mock_cls = mocker.MagicMock()
+        mock_instance = mock_cls.return_value
+        mock_instance.start.return_value = None
+        with patch(self.PATCH_TARGET, mock_cls):
+            self._run_main(mock_cls)
+
+        calls = mock_instance.add_job.call_args_list
+        second_call = calls[1]
+        args, kwargs = second_call
+        func = args[0] if args else kwargs.get("func")
+        assert func.__name__ == "job_posting_crawl"
+        assert kwargs.get("trigger") == "cron"
+        assert kwargs.get("hour") == 2
+        assert kwargs.get("minute") == 30
+        assert kwargs.get("id") == "daily_job_crawl"
+
+    def test_notification_batch_job_configuration(self, mocker):
+        mock_cls = mocker.MagicMock()
+        mock_instance = mock_cls.return_value
+        mock_instance.start.return_value = None
+        with patch(self.PATCH_TARGET, mock_cls):
+            self._run_main(mock_cls)
+
+        calls = mock_instance.add_job.call_args_list
+        third_call = calls[2]
+        args, kwargs = third_call
+        func = args[0] if args else kwargs.get("func")
+        assert func.__name__ == "notification_batch"
+        assert kwargs.get("trigger") == "cron"
+        assert kwargs.get("hour") == 3
+        assert kwargs.get("minute") == 0
+        assert kwargs.get("id") == "daily_notification_batch"
+
+    def test_all_jobs_use_kst_timezone(self, mocker):
+        from zoneinfo import ZoneInfo
+        kst = ZoneInfo("Asia/Seoul")
+
+        mock_cls = mocker.MagicMock()
+        mock_instance = mock_cls.return_value
+        mock_instance.start.return_value = None
+        with patch(self.PATCH_TARGET, mock_cls):
+            self._run_main(mock_cls)
+
+        for job_call in mock_instance.add_job.call_args_list:
+            _, kwargs = job_call
+            assert kwargs.get("timezone") == kst, (
+                f"Expected KST timezone for job {kwargs.get('id')}"
+            )
+
+    def test_scheduler_start_is_called(self, mocker):
+        mock_cls = mocker.MagicMock()
+        mock_instance = mock_cls.return_value
+        mock_instance.start.return_value = None
+        with patch(self.PATCH_TARGET, mock_cls):
+            self._run_main(mock_cls)
+        mock_instance.start.assert_called_once_with()
+
+    def test_keyboard_interrupt_is_handled_gracefully(self, mocker):
+        mock_cls = mocker.MagicMock()
+        mock_instance = mock_cls.return_value
+        mock_instance.start.side_effect = KeyboardInterrupt
+        with patch(self.PATCH_TARGET, mock_cls):
+            # Should not propagate — the __main__ block catches KeyboardInterrupt
+            self._run_main(mock_cls)  # must not raise
+
+    def test_system_exit_is_handled_gracefully(self, mocker):
+        mock_cls = mocker.MagicMock()
+        mock_instance = mock_cls.return_value
+        mock_instance.start.side_effect = SystemExit
+        with patch(self.PATCH_TARGET, mock_cls):
+            # Should not propagate — the __main__ block catches SystemExit
+            self._run_main(mock_cls)  # must not raise
+
+    def test_logs_scheduler_start_message(self, mocker, caplog):
+        mock_cls = mocker.MagicMock()
+        mock_instance = mock_cls.return_value
+        mock_instance.start.return_value = None
+        with patch(self.PATCH_TARGET, mock_cls):
+            with caplog.at_level(logging.INFO):
+                self._run_main(mock_cls)
+        messages = " ".join(r.message for r in caplog.records)
+        assert "스케줄러 시작" in messages
+
+    def test_logs_scheduler_shutdown_on_keyboard_interrupt(self, mocker, caplog):
+        mock_cls = mocker.MagicMock()
+        mock_instance = mock_cls.return_value
+        mock_instance.start.side_effect = KeyboardInterrupt
+        with patch(self.PATCH_TARGET, mock_cls):
+            with caplog.at_level(logging.INFO):
+                self._run_main(mock_cls)
+        messages = " ".join(r.message for r in caplog.records)
+        assert "스케줄러 종료" in messages
