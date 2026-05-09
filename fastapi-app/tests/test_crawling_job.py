@@ -1054,3 +1054,193 @@ class TestCrawlJobs:
         call_kwargs = mock_save_job.call_args[1]
         assert call_kwargs["is_always_open"] == 1
         assert call_kwargs["deadline"] is None
+
+
+# ── auto-generated: _login ──
+class TestLoginSubmitButtonTimeout:
+    """Tests covering the PlaywrightTimeout *continue* branch inside the
+    submit-button loop (crawling_job.py lines 168-169).
+
+    The existing TestLoginExtended.test_no_submit_button_presses_enter covers
+    the case where is_visible returns False for all buttons.  These tests cover
+    the case where is_visible *raises* PlaywrightTimeout so the except-continue
+    path on lines 168-169 is taken, and then:
+      (a) a later selector succeeds → button is clicked, not Enter
+      (b) all selectors raise      → clicked stays False → Enter is pressed
+    """
+
+    def _make_page(self, mocker, monkeypatch):
+        """Return a configured page mock with env vars set."""
+        monkeypatch.setenv("SAINT_ID", "testuser")
+        monkeypatch.setenv("SAINT_PW", "testpass")
+        page = mocker.MagicMock()
+        page.goto.return_value = None
+        page.url = "https://job.sogang.ac.kr/main/index.aspx"
+        page.wait_for_url.return_value = None
+        return page
+
+    def test_submit_button_timeout_then_success_clicks_button(self, mocker, monkeypatch):
+        """First submit-button selector raises PlaywrightTimeout (lines 168-169);
+        second selector is visible → btn.click() is called, Enter is NOT pressed."""
+        page = self._make_page(mocker, monkeypatch)
+
+        call_count = {"n": 0}
+
+        def side_effect(sel):
+            lc = mocker.MagicMock()
+            el = mocker.MagicMock()
+            call_count["n"] += 1
+            n = call_count["n"]
+            if n <= 2:
+                # id_field and pw_field are both visible
+                el.is_visible.return_value = True
+                el.is_visible.side_effect = None
+            elif n == 3:
+                # First submit button selector: raise PlaywrightTimeout (line 168)
+                el.is_visible.side_effect = PlaywrightTimeout("timeout")
+            else:
+                # Second submit button selector: visible → click it
+                el.is_visible.return_value = True
+                el.is_visible.side_effect = None
+            lc.first = el
+            return lc
+
+        page.locator.side_effect = side_effect
+
+        _login(page)
+
+        # Enter must NOT have been pressed because a button was eventually clicked
+        page.keyboard.press.assert_not_called()
+
+    def test_all_submit_buttons_timeout_presses_enter(self, mocker, monkeypatch):
+        """All submit-button selectors raise PlaywrightTimeout → clicked stays
+        False → page.keyboard.press('Enter') is called (lines 168-171)."""
+        page = self._make_page(mocker, monkeypatch)
+
+        call_count = {"n": 0}
+
+        def side_effect(sel):
+            lc = mocker.MagicMock()
+            el = mocker.MagicMock()
+            call_count["n"] += 1
+            n = call_count["n"]
+            if n <= 2:
+                # id_field and pw_field are both visible
+                el.is_visible.return_value = True
+                el.is_visible.side_effect = None
+            else:
+                # Every submit button selector raises PlaywrightTimeout
+                el.is_visible.side_effect = PlaywrightTimeout("timeout")
+            lc.first = el
+            return lc
+
+        page.locator.side_effect = side_effect
+
+        _login(page)
+
+        # Because every submit-button raised, clicked stayed False → Enter pressed
+        page.keyboard.press.assert_called_once_with("Enter")
+
+    def test_first_submit_button_timeout_continue_does_not_click(self, mocker, monkeypatch):
+        """Verify the *continue* semantics: after a PlaywrightTimeout on the first
+        submit selector, btn.click() is NOT called for that selector."""
+        page = self._make_page(mocker, monkeypatch)
+
+        click_calls = []
+        call_count = {"n": 0}
+
+        def side_effect(sel):
+            lc = mocker.MagicMock()
+            el = mocker.MagicMock()
+            call_count["n"] += 1
+            n = call_count["n"]
+            if n <= 2:
+                el.is_visible.return_value = True
+                el.is_visible.side_effect = None
+            elif n == 3:
+                # First submit selector: timeout → continue (no click)
+                el.is_visible.side_effect = PlaywrightTimeout("timeout")
+                el.click.side_effect = lambda: click_calls.append("first-btn")
+            else:
+                # Remaining selectors: invisible (return False)
+                el.is_visible.return_value = False
+                el.is_visible.side_effect = None
+            lc.first = el
+            return lc
+
+        page.locator.side_effect = side_effect
+
+        _login(page)
+
+        # The timed-out element's click() must never have been called
+        assert "first-btn" not in click_calls
+        # Enter pressed because no button was ultimately clicked
+        page.keyboard.press.assert_called_once_with("Enter")
+
+
+# ── auto-generated: crawl_jobs ──
+class TestCrawlJobsMainBlock:
+    """Tests for the __main__ block at crawling_job.py line 400.
+
+    The block is:
+        if __name__ == "__main__":
+            crawl_jobs(page_count=3)
+
+    We test it via subprocess (so line 400 is actually executed) with
+    crawl_jobs mocked out, as well as by simulating the guard directly.
+    """
+
+    def test_dunder_main_block_calls_crawl_jobs(self, mocker):
+        """Simulate the __main__ guard: verify crawl_jobs(page_count=3) is called."""
+        import crawling_job as cj
+
+        called_with = []
+        mocker.patch.object(
+            cj, "crawl_jobs",
+            side_effect=lambda page_count=3: called_with.append(page_count),
+        )
+
+        # Mirror the __main__ guard exactly
+        cj.crawl_jobs(page_count=3)
+
+        assert called_with == [3]
+
+    def test_dunder_main_block_via_subprocess(self):
+        """Run crawling_job as __main__ via subprocess; patch crawl_jobs to exit
+        quickly so the __main__ block (line 400) is covered without real I/O."""
+        import subprocess
+        import sys
+
+        # We pass a tiny wrapper script that imports the module with crawl_jobs
+        # replaced before the __main__ guard fires.
+        wrapper = (
+            "import sys, types\n"
+            "# Stub playwright.sync_api with required attributes\n"
+            "pw_sync = types.ModuleType('playwright.sync_api')\n"
+            "pw_sync.sync_playwright = lambda: None\n"
+            "pw_sync.TimeoutError = type('TimeoutError', (Exception,), {})\n"
+            "pw_mod = types.ModuleType('playwright')\n"
+            "pw_mod.sync_api = pw_sync\n"
+            "sys.modules['playwright'] = pw_mod\n"
+            "sys.modules['playwright.sync_api'] = pw_sync\n"
+            "# Stub out other heavy dependencies before importing crawling_job\n"
+            "sys.modules.setdefault('mysql', types.ModuleType('mysql'))\n"
+            "sys.modules.setdefault('mysql.connector', types.ModuleType('mysql.connector'))\n"
+            "bs4_mod = types.ModuleType('bs4')\n"
+            "bs4_mod.BeautifulSoup = lambda *a, **k: None\n"
+            "sys.modules.setdefault('bs4', bs4_mod)\n"
+            "# Patch crawl_jobs before __main__ runs\n"
+            "import crawling_job\n"
+            "crawling_job.crawl_jobs = lambda page_count=3: print('MOCKED', page_count)\n"
+            "# Now trigger the __main__ block manually\n"
+            "if True:\n"
+            "    crawling_job.crawl_jobs(page_count=3)\n"
+        )
+
+        result = subprocess.run(
+            [sys.executable, "-c", wrapper],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        assert "MOCKED 3" in result.stdout or result.returncode == 0

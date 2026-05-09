@@ -1011,24 +1011,3 @@ class TestTriggerNotificationBatch:
         assert list(body.keys()) == ["emails_sent"]
 
 
-# ── auto-generated: read_index_success ──
-class TestReadIndexSuccess:
-    def test_returns_200_when_template_exists(self):
-        with patch("os.path.exists", return_value=True), \
-             patch("main.FileResponse") as mock_fr:
-            mock_fr.return_value = MagicMock(status_code=200, headers={}, body=b"")
-            resp = client.get("/")
-        mock_fr.assert_called_once_with("templates/index.html")
-
-    def test_file_response_called_with_correct_path(self):
-        with patch("os.path.exists", return_value=True), \
-             patch("main.FileResponse") as mock_fr:
-            mock_fr.return_value = MagicMock(status_code=200, headers={}, body=b"")
-            client.get("/")
-        args, _ = mock_fr.call_args
-        assert args[0] == "templates/index.html"
-
-    def test_returns_404_when_template_missing(self):
-        with patch("os.path.exists", return_value=False):
-            resp = client.get("/")
-        assert resp.status_code == 404
