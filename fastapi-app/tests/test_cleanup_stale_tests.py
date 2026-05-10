@@ -3,6 +3,7 @@ import ast
 import sys
 import textwrap
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -709,3 +710,137 @@ class TestMainFunctionDirect:
         cst.main()
 
         assert called == [True]
+
+
+# ── auto-generated: main ──
+from scripts.cleanup_stale_tests import main as _real_main  # noqa: E402  (module-level import)
+
+
+def _make_path_patcher(tmp_path):
+    """Return a Path constructor side-effect that redirects the __file__ chain
+    used inside main() to *tmp_path*, while delegating all other calls to the
+    real pathlib.Path so that filesystem operations on sub-paths still work."""
+    import pathlib as _pathlib
+
+    real_Path = _pathlib.Path
+
+    def _fake_path_ctor(arg=None, *args, **kwargs):
+        if arg == cst.__file__:
+            # Intercept Path(__file__) → mock whose .resolve().parent.parent == tmp_path
+            m = MagicMock(spec=real_Path)
+            m.resolve.return_value.parent.parent = tmp_path
+            return m
+        if arg is not None:
+            return real_Path(arg, *args, **kwargs)
+        return real_Path(*args, **kwargs)
+
+    return _fake_path_ctor
+
+
+class TestMainRealBody:
+    """Exercises the *real* main() body (lines 85-103) by patching
+    cleanup_stale_tests.Path so Path(__file__).resolve().parent.parent
+    resolves to a controlled tmp directory.  All three previously-uncovered
+    branches are hit here:
+      - Lines 91-92: main_py does not exist → error to stderr + sys.exit(1)
+      - Lines 94-95: test_py does not exist → SKIP to stdout + sys.exit(0)
+      - Line 101:    removed is non-empty → prints 'Removed stale test blocks: ...'
+    """
+
+    # ------------------------------------------------------------------
+    # Lines 91-92: main.py missing → sys.exit(1) + error message on stderr
+    # ------------------------------------------------------------------
+
+    def test_real_main_py_missing_exits_1(self, tmp_path, mocker, capsys):
+        """Real main() exits with code 1 when main.py does not exist."""
+        # tmp_path has no main.py
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+
+        mocker.patch("cleanup_stale_tests.Path", side_effect=_make_path_patcher(tmp_path))
+
+        with pytest.raises(SystemExit) as exc_info:
+            cst.main()
+
+        assert exc_info.value.code == 1
+
+    def test_real_main_py_missing_prints_error_to_stderr(self, tmp_path, mocker, capsys):
+        """Real main() writes 'ERROR: ... not found' to stderr when main.py is absent."""
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+
+        mocker.patch("cleanup_stale_tests.Path", side_effect=_make_path_patcher(tmp_path))
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        captured = capsys.readouterr()
+        assert "ERROR" in captured.err
+        assert "main.py" in captured.err
+
+    # ------------------------------------------------------------------
+    # Lines 94-95: test_py missing (main.py present) → sys.exit(0) + SKIP
+    # ------------------------------------------------------------------
+
+    def test_real_test_py_missing_exits_0(self, tmp_path, mocker, capsys):
+        """Real main() exits with code 0 when main.py exists but test_main.py does not."""
+        main_py = tmp_path / "main.py"
+        main_py.write_text("def hello(): pass\n", encoding="utf-8")
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        # test_main.py intentionally NOT created
+
+        mocker.patch("cleanup_stale_tests.Path", side_effect=_make_path_patcher(tmp_path))
+
+        with pytest.raises(SystemExit) as exc_info:
+            cst.main()
+
+        assert exc_info.value.code == 0
+
+    def test_real_test_py_missing_prints_skip(self, tmp_path, mocker, capsys):
+        """Real main() prints 'SKIP: ... not found' when test_main.py is absent."""
+        main_py = tmp_path / "main.py"
+        main_py.write_text("def hello(): pass\n", encoding="utf-8")
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+
+        mocker.patch("cleanup_stale_tests.Path", side_effect=_make_path_patcher(tmp_path))
+
+        import io
+        from contextlib import redirect_stdout
+
+        buf = io.StringIO()
+        with pytest.raises(SystemExit):
+            with redirect_stdout(buf):
+                cst.main()
+
+        assert "SKIP" in buf.getvalue()
+        assert "test_main.py" in buf.getvalue()
+
+    # ------------------------------------------------------------------
+    # Line 101: removed is non-empty → prints 'Removed stale test blocks: ...'
+    # ------------------------------------------------------------------
+
+    def test_real_main_removed_branch_prints_names(self, tmp_path, mocker, capsys):
+        """Real main() prints removed block names when stale blocks are cleaned up."""
+        main_py = tmp_path / "main.py"
+        main_py.write_text("def live_func(): pass\n", encoding="utf-8")
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        test_py = tests_dir / "test_main.py"
+        test_py.write_text(
+            "# ── auto-generated: dead_func ──\n"
+            "class TestDeadFunc:\n"
+            "    def test_dead(self):\n"
+            "        pass\n",
+            encoding="utf-8",
+        )
+
+        mocker.patch("cleanup_stale_tests.Path", side_effect=_make_path_patcher(tmp_path))
+
+        import io
+        from contextlib import redirect_stdout
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cst.main()
+
+        output = buf.getvalue()
+        assert "Removed stale test blocks:" in output
+        assert "dead_func" in output

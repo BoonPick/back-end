@@ -1011,3 +1011,10 @@ class TestTriggerNotificationBatch:
         assert list(body.keys()) == ["emails_sent"]
 
 
+# ── auto-generated: read_index ──
+class TestReadIndexMissing:
+    def test_returns_404_when_template_missing(self, mocker):
+        mocker.patch("main.os.path.exists", return_value=False)
+        resp = client.get("/")
+        assert resp.status_code == 404
+

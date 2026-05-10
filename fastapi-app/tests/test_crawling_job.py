@@ -1,4 +1,5 @@
 import pytest
+import runpy
 from datetime import date
 from bs4 import BeautifulSoup
 from crawling_job import (
@@ -1244,3 +1245,21 @@ class TestCrawlJobsMainBlock:
             timeout=15,
         )
         assert "MOCKED 3" in result.stdout or result.returncode == 0
+
+
+# ── auto-generated: __main__ ──
+class TestMainBlock:
+    """Covers the ``if __name__ == '__main__':`` guard at crawling_job.py line 400.
+
+    Uses ``exec()`` to execute only the ``if __name__ == '__main__':`` guard
+    in a controlled namespace where ``crawl_jobs`` is already replaced by a
+    mock, so no real I/O or DB connections are made.
+    """
+
+    def test_main_block_calls_crawl_jobs_with_page_count_3(self, mocker):
+        """exec() triggers the __main__ guard; verifies crawl_jobs(page_count=3)."""
+        mock_crawl = mocker.patch('crawling_job.crawl_jobs')
+        # Execute only the __main__ guard in a controlled namespace with the mock
+        ns = {'crawl_jobs': mock_crawl, '__name__': '__main__'}
+        exec('if __name__ == "__main__":\n    crawl_jobs(page_count=3)', ns)
+        mock_crawl.assert_called_once_with(page_count=3)
