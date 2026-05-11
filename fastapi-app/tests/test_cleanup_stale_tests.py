@@ -709,3 +709,116 @@ class TestMainFunctionDirect:
         cst.main()
 
         assert called == [True]
+
+
+# ── auto-generated: main ──
+class TestMain:
+    """Cover lines 91-92, 94-95, and 101 of the real main() by patching
+    cleanup_stale_tests.Path so that Path(__file__).resolve().parent.parent
+    resolves to a controlled tmp directory, exercising the real main() body."""
+
+    def _make_fake_path_cls(self, tmp_path):
+        """Return a drop-in replacement for pathlib.Path used inside main().
+
+        When called with a single string argument that looks like a file path
+        (i.e. the __file__ argument inside main), the chain
+        .resolve().parent.parent is intercepted to return tmp_path.
+        All other Path() constructions fall through to the real pathlib.Path.
+        """
+        real_Path = Path
+
+        class FakePath(type(real_Path())):
+            def __new__(cls, *args, **kwargs):
+                obj = real_Path.__new__(cls, *args, **kwargs)
+                return obj
+
+            def resolve(self):
+                # Only intercept the specific __file__ path used inside main()
+                resolved = real_Path.resolve(self)
+                return _FakeResolved(resolved, tmp_path)
+
+        class _FakeResolved:
+            """Wraps a resolved path; .parent.parent returns tmp_path."""
+
+            def __init__(self, real_resolved, base):
+                self._real = real_resolved
+                self._base = base
+
+            @property
+            def parent(self):
+                return _FakeParent(self._real.parent, self._base)
+
+        class _FakeParent:
+            """First .parent; its .parent returns tmp_path."""
+
+            def __init__(self, real_parent, base):
+                self._real = real_parent
+                self._base = base
+
+            @property
+            def parent(self):
+                return self._base
+
+        return FakePath
+
+    def test_main_exits_with_error_when_main_py_not_found(self, tmp_path, mocker, capsys):
+        """Lines 91-92: main.py missing → ERROR on stderr, sys.exit(1)."""
+        # Neither main.py nor tests/ exist under tmp_path → main_py.exists() is False.
+        FakePath = self._make_fake_path_cls(tmp_path)
+        mocker.patch("cleanup_stale_tests.Path", FakePath)
+
+        with pytest.raises(SystemExit) as exc_info:
+            cst.main()
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "ERROR" in captured.err
+
+    def test_main_exits_silently_when_test_py_not_found(self, tmp_path, mocker, capsys):
+        """Lines 94-95: main.py exists, test_py missing → SKIP to stdout, sys.exit(0)."""
+        # Create main.py so the first branch is skipped.
+        (tmp_path / "main.py").write_text("def hello(): pass\n", encoding="utf-8")
+        # tests/ dir is absent so test_py.exists() returns False.
+
+        FakePath = self._make_fake_path_cls(tmp_path)
+        mocker.patch("cleanup_stale_tests.Path", FakePath)
+
+        with pytest.raises(SystemExit) as exc_info:
+            cst.main()
+
+        assert exc_info.value.code == 0
+        captured = capsys.readouterr()
+        assert "SKIP" in captured.out
+
+    def test_main_prints_removed_blocks_when_stale_found(self, tmp_path, mocker, capsys):
+        """Line 101: cleanup returns non-empty list → 'Removed stale test blocks' printed."""
+        # Set up a valid filesystem layout.
+        (tmp_path / "main.py").write_text("def live_func(): pass\n", encoding="utf-8")
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        (tests_dir / "test_main.py").write_text(
+            "# ── auto-generated: dead_func ──\n"
+            "class TestDeadFunc:\n"
+            "    def test_dead(self):\n"
+            "        pass\n",
+            encoding="utf-8",
+        )
+
+        FakePath = self._make_fake_path_cls(tmp_path)
+        mocker.patch("cleanup_stale_tests.Path", FakePath)
+
+        # Force cleanup_stale_tests to report a removed block so line 101 is hit.
+        mocker.patch(
+            "cleanup_stale_tests.get_main_functions",
+            return_value={"live_func"},
+        )
+        mocker.patch(
+            "cleanup_stale_tests.cleanup_stale_tests",
+            return_value=["dead_func"],
+        )
+
+        cst.main()
+
+        captured = capsys.readouterr()
+        assert "Removed stale test blocks:" in captured.out
+        assert "dead_func" in captured.out

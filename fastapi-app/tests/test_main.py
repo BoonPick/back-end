@@ -982,6 +982,14 @@ class TestReadIndex:
         assert resp.status_code == 405
 
 
+# ── auto-generated: read_index ──
+class TestReadIndexNotFound:
+    def test_returns_404_when_template_missing(self):
+        with patch("os.path.exists", return_value=False):
+            resp = client.get("/")
+        assert resp.status_code == 404
+
+
 # ── auto-generated: trigger_notification_batch ──
 class TestTriggerNotificationBatch:
     def test_returns_emails_sent_count(self):
