@@ -208,10 +208,22 @@ pipeline {
                                     ${TARGET_USER}@${TARGET_SERVER}:${remoteDir}/prometheus/prometheus.yml
 
                                 # 2) 컨테이너 기동(또는 설정 갱신). prometheus는 재시작해 새 설정 반영.
+                                # 운영 서버에 docker compose v2(plugin) 또는 v1(docker-compose) 둘 중
+                                # 무엇이 있는지 자동 감지. \$는 원격 셸 변수이므로 Groovy 보간을 막기 위해 escape.
                                 ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_SERVER} "
-                                    cd ${remoteDir} && \\
-                                    docker compose up -d --remove-orphans && \\
-                                    docker compose restart prometheus
+                                    set -e
+                                    cd ${remoteDir}
+                                    if command -v docker-compose >/dev/null 2>&1; then
+                                        COMPOSE='docker-compose'
+                                    elif docker compose version >/dev/null 2>&1; then
+                                        COMPOSE='docker compose'
+                                    else
+                                        echo 'ERROR: neither docker-compose nor docker compose plugin is installed on the target server' >&2
+                                        exit 127
+                                    fi
+                                    echo \\\"Using: \\\$COMPOSE\\\"
+                                    \\\$COMPOSE up -d --remove-orphans
+                                    \\\$COMPOSE restart prometheus
                                 "
                             """
                         }
