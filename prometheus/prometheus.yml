@@ -1,0 +1,14 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  # 호스트(맥/윈도우 Docker Desktop)에서 직접 실행 중인 FastAPI(uvicorn :8000)를 수집.
+  # FastAPI를 같은 compose 안에서 컨테이너로 띄울 경우, 아래 target을 'fastapi-app:8000' 등으로 바꿔주세요.
+  - job_name: 'fastapi'
+    static_configs:
+      - targets: ['host.docker.internal:8000']
+
+  # 시스템 메트릭 수집 (Node Exporter). compose 내부 서비스명으로 접근.
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']

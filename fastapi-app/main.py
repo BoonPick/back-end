@@ -15,6 +15,8 @@ from datetime import datetime, timedelta
 
 import mysql.connector
 
+from prometheus_fastapi_instrumentator import Instrumentator
+
 from llm import get_llm_recommendation
 import crawling_noti
 import crawling_job
@@ -60,6 +62,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Prometheus 메트릭 엔드포인트 (/metrics)
+Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
 
 # ── Models ───────────────────────────────────────────────────────
