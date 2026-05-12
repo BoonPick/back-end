@@ -186,6 +186,43 @@ pipeline {
                 }
             }
         }
+
+        stage('Deploy Monitoring Stack') {
+            // main 배포일 때만 동작. 모니터링 컨테이너는 앱과 라이프사이클이 분리돼 있어
+            // 매 배포마다 재기동되지 않고, 설정 파일이 바뀌었을 때만 반영됨.
+            when {
+                expression { env.DEPLOY_BRANCH == 'main' }
+            }
+            steps {
+                script {
+                    def remoteDir = "~/boonpick-monitoring"
+                    try {
+                        sshagent(["${SSH_CRED_ID}"]) {
+                            sh """
+                                # 1) 설정 디렉터리 준비 후 compose / prometheus 설정 전송
+                                ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_SERVER} \\
+                                    "mkdir -p ${remoteDir}/prometheus"
+                                scp -o StrictHostKeyChecking=no docker-compose.yml \\
+                                    ${TARGET_USER}@${TARGET_SERVER}:${remoteDir}/docker-compose.yml
+                                scp -o StrictHostKeyChecking=no prometheus/prometheus.yml \\
+                                    ${TARGET_USER}@${TARGET_SERVER}:${remoteDir}/prometheus/prometheus.yml
+
+                                # 2) 컨테이너 기동(또는 설정 갱신). prometheus는 재시작해 새 설정 반영.
+                                ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_SERVER} "
+                                    cd ${remoteDir} && \\
+                                    docker compose up -d --remove-orphans && \\
+                                    docker compose restart prometheus
+                                "
+                            """
+                        }
+                        echo "모니터링 스택 배포 완료 — Prometheus :9090, Grafana :3001, Node Exporter :9100"
+                    } catch (Exception e) {
+                        echo "STAGE_ERROR: ${e.getMessage()}"
+                        throw e
+                    }
+                }
+            }
+        }
     }
 
     post {
