@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
-from typing import List, Optional
+from typing import Annotated, List, Optional
 import logging
 import os
 import random
@@ -447,8 +447,8 @@ def get_board_items(
     search: Optional[str] = None,
     duty: Optional[str] = None,
     work_type: Optional[str] = None,
-    page: int = Query(1, ge=1),
-    size: int = Query(20, ge=1, le=100),
+    page: Annotated[int, Query(ge=1)] = 1,
+    size: Annotated[int, Query(ge=1, le=100)] = 20,
 ):
     conn = get_db()
     try:
@@ -564,7 +564,7 @@ def get_board_item(item_id: int):
 # ── Recommendation (LLM) ────────────────────────────────────────
 
 @app.get("/api/recommendations/{item_id}", response_model=Recommendation)
-def get_recommendation(item_id: int, keywords: str = Query("")):
+def get_recommendation(item_id: int, keywords: Annotated[str, Query()] = ""):
     conn = get_db()
     try:
         cursor = conn.cursor(dictionary=True)
@@ -598,13 +598,13 @@ def get_recommendation(item_id: int, keywords: str = Query("")):
 # ── Admin / Crawl ────────────────────────────────────────────────
 
 @app.post("/api/admin/crawl")
-def trigger_crawl(page_count: int = Query(5, ge=1, le=20)):
+def trigger_crawl(page_count: Annotated[int, Query(ge=1, le=20)] = 5):
     saved = crawling_noti.crawl_notices(page_count=page_count)
     return {"saved": saved, "page_count": page_count}
 
 
 @app.post("/api/admin/crawl/jobs")
-def trigger_job_crawl(page_count: int = Query(3, ge=1, le=20)):
+def trigger_job_crawl(page_count: Annotated[int, Query(ge=1, le=20)] = 3):
     saved = crawling_job.crawl_jobs(page_count=page_count)
     return {"saved": saved, "page_count": page_count}
 
@@ -620,7 +620,7 @@ def trigger_notification_batch():
 
 @app.post("/api/admin/dedup/jobs", response_model=DedupJobsResponse)
 def dedup_jobs_by_title_worktype(
-    dry_run: bool = Query(True, description="True면 영향 범위만 반환, False면 실제 삭제"),
+    dry_run: Annotated[bool, Query(description="True면 영향 범위만 반환, False면 실제 삭제")] = True,
 ):
     """
     같은 (title, work_type) 조합으로 등록된 채용공고 중 가장 작은 id만 남기고 나머지 삭제.
