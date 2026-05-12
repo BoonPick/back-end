@@ -709,3 +709,329 @@ class TestMainFunctionDirect:
         cst.main()
 
         assert called == [True]
+
+
+# ── auto-generated: main ──
+import runpy as _runpy
+
+
+def _make_fake_path_factory(script_file: str, base_dir):
+    """Return a Path side-effect callable that redirects Path(__file__) to base_dir.
+
+    When the real main() executes ``base = Path(__file__).resolve().parent.parent``
+    the factory intercepts the ``Path(__file__)`` call and returns a mock whose
+    resolve chain yields *base_dir*.  All other Path() calls are forwarded to the
+    real pathlib.Path so that subsequent ``base / "main.py"`` divisions work.
+    """
+    from unittest.mock import MagicMock
+
+    def factory(*args, **kwargs):
+        if args and str(args[0]) == script_file:
+            fake = MagicMock()
+            fake.resolve.return_value.parent.parent = base_dir
+            return fake
+        return Path(*args, **kwargs)
+
+    return factory
+
+
+class TestMainDirectCoverage:
+    """Call the *real* cst.main() by patching ``cleanup_stale_tests.Path`` so
+    that ``Path(__file__).resolve().parent.parent`` resolves to a tmp_path we
+    control.  This exercises lines 91, 92, 94, 95, and 101 directly."""
+
+    # ------------------------------------------------------------------ #
+    # Scenario A: main.py does NOT exist → print ERROR to stderr, exit(1) #
+    # ------------------------------------------------------------------ #
+
+    def test_main_py_missing_exits_1(self, tmp_path, mocker):
+        """Lines 91-92: missing main.py triggers sys.exit(1)."""
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        # main.py intentionally absent from tmp_path
+
+        script_file = str(Path(cst.__file__).resolve())
+        factory = _make_fake_path_factory(script_file, tmp_path)
+
+        mock_exit = mocker.patch("sys.exit", side_effect=SystemExit)
+        mocker.patch("builtins.print")
+        mocker.patch("cleanup_stale_tests.Path", side_effect=factory)
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        mock_exit.assert_called_once_with(1)
+
+    def test_main_py_missing_prints_error_to_stderr(self, tmp_path, mocker, capsys):
+        """Lines 91-92: ERROR message goes to stderr when main.py is absent."""
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+
+        script_file = str(Path(cst.__file__).resolve())
+        factory = _make_fake_path_factory(script_file, tmp_path)
+
+        mocker.patch("sys.exit", side_effect=SystemExit)
+        mocker.patch("cleanup_stale_tests.Path", side_effect=factory)
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        captured = capsys.readouterr()
+        assert "ERROR" in captured.err
+        assert "main.py" in captured.err
+
+    # ------------------------------------------------------------------ #
+    # Scenario B: main.py exists, test_py absent → print SKIP, exit(0)   #
+    # ------------------------------------------------------------------ #
+
+    def test_test_py_missing_exits_0(self, tmp_path, mocker):
+        """Lines 94-95: missing test_main.py triggers sys.exit(0)."""
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "main.py").write_text("def hello(): pass\n", encoding="utf-8")
+        # test_main.py intentionally absent
+
+        script_file = str(Path(cst.__file__).resolve())
+        factory = _make_fake_path_factory(script_file, tmp_path)
+
+        mock_exit = mocker.patch("sys.exit", side_effect=SystemExit)
+        mocker.patch("builtins.print")
+        mocker.patch("cleanup_stale_tests.Path", side_effect=factory)
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        mock_exit.assert_called_once_with(0)
+
+    def test_test_py_missing_prints_skip(self, tmp_path, mocker, capsys):
+        """Lines 94-95: SKIP message printed to stdout when test_main.py absent."""
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "main.py").write_text("def hello(): pass\n", encoding="utf-8")
+
+        script_file = str(Path(cst.__file__).resolve())
+        factory = _make_fake_path_factory(script_file, tmp_path)
+
+        mocker.patch("sys.exit", side_effect=SystemExit)
+        mocker.patch("cleanup_stale_tests.Path", side_effect=factory)
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        captured = capsys.readouterr()
+        assert "SKIP" in captured.out
+        assert "test_main.py" in captured.out
+
+    # ------------------------------------------------------------------ #
+    # Scenario C: __main__ guard (line 101) via runpy                     #
+    # ------------------------------------------------------------------ #
+
+    def test_dunder_main_line_via_runpy(self, tmp_path, mocker):
+        """Line 101: runpy executes the script as __main__, hitting main()."""
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "main.py").write_text("def hello(): pass\n", encoding="utf-8")
+
+        script_file = str(Path(cst.__file__).resolve())
+        factory = _make_fake_path_factory(script_file, tmp_path)
+
+        # Build init_globals that runpy will merge into the module's namespace.
+        # We override 'Path' so that main() uses our factory, and 'sys' so
+        # sys.exit does not kill the process.
+        import sys as _sys
+        import unittest.mock as _mock
+
+        mock_exit = _mock.MagicMock(side_effect=SystemExit)
+
+        init_globals = {
+            "Path": factory,
+            "sys": type(_sys)(  # lightweight: just reuse real sys but patch exit
+                _sys.__name__,
+            ),
+        }
+        # Simpler: patch sys.exit globally before runpy runs
+        mocker.patch("sys.exit", side_effect=SystemExit)
+        mocker.patch("builtins.print")
+        mocker.patch("cleanup_stale_tests.Path", side_effect=factory)
+
+        try:
+            _runpy.run_path(script_file, run_name="__main__",
+                            init_globals={"Path": factory})
+        except SystemExit:
+            pass  # expected – main() will call sys.exit when test_main.py is absent
+
+
+# ── auto-generated: main ──
+import runpy as _runpy2
+import scripts.cleanup_stale_tests as _cst_pkg
+
+
+def _make_path_factory(script_file: str, base_dir):
+    """Return a side_effect callable that redirects Path(__file__) to base_dir
+    while forwarding all other Path() calls to the real pathlib.Path."""
+    from unittest.mock import MagicMock
+
+    def _factory(*args, **kwargs):
+        if args and str(args[0]) == script_file:
+            fake = MagicMock()
+            fake.resolve.return_value.parent.parent = base_dir
+            return fake
+        return Path(*args, **kwargs)
+
+    return _factory
+
+
+class TestMainRealCallCoverage:
+    """Call the *real* cst.main() to cover lines 91, 92, 94, 95, and 101.
+
+    Strategy: patch ``cleanup_stale_tests.Path`` with a factory that intercepts
+    ``Path(__file__)`` and returns a mock whose ``.resolve().parent.parent``
+    equals a controlled ``tmp_path``.  All other ``Path(...)`` calls are
+    forwarded to the real ``pathlib.Path`` so filesystem operations work.
+    """
+
+    _script_file: str = str(Path(_cst_pkg.__file__).resolve())
+
+    # ------------------------------------------------------------------ #
+    # Lines 91-92: main.py missing → print ERROR to stderr + sys.exit(1)  #
+    # ------------------------------------------------------------------ #
+
+    def test_real_main_missing_main_py_exits_1(self, tmp_path, mocker):
+        """Line 91-92: real main() exits with code 1 when main.py is absent."""
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        # main.py intentionally NOT created
+
+        factory = _make_path_factory(self._script_file, tmp_path)
+        mock_exit = mocker.patch("sys.exit", side_effect=SystemExit)
+        mocker.patch("builtins.print")
+        mocker.patch("cleanup_stale_tests.Path", side_effect=factory)
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        mock_exit.assert_called_once_with(1)
+
+    def test_real_main_missing_main_py_prints_error_stderr(self, tmp_path, mocker, capsys):
+        """Lines 91-92: real main() prints ERROR to stderr when main.py is absent."""
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+
+        factory = _make_path_factory(self._script_file, tmp_path)
+        mocker.patch("sys.exit", side_effect=SystemExit)
+        mocker.patch("cleanup_stale_tests.Path", side_effect=factory)
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        captured = capsys.readouterr()
+        assert "ERROR" in captured.err
+        assert "main.py" in captured.err
+
+    # ------------------------------------------------------------------ #
+    # Lines 94-95: test_py missing → print SKIP to stdout + sys.exit(0)   #
+    # ------------------------------------------------------------------ #
+
+    def test_real_main_missing_test_py_exits_0(self, tmp_path, mocker):
+        """Lines 94-95: real main() exits with code 0 when test_main.py is absent."""
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "main.py").write_text("def hello(): pass\n", encoding="utf-8")
+        # test_main.py intentionally NOT created
+
+        factory = _make_path_factory(self._script_file, tmp_path)
+        mock_exit = mocker.patch("sys.exit", side_effect=SystemExit)
+        mocker.patch("builtins.print")
+        mocker.patch("cleanup_stale_tests.Path", side_effect=factory)
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        mock_exit.assert_called_once_with(0)
+
+    def test_real_main_missing_test_py_prints_skip(self, tmp_path, mocker, capsys):
+        """Lines 94-95: real main() prints SKIP to stdout when test_main.py is absent."""
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "main.py").write_text("def hello(): pass\n", encoding="utf-8")
+
+        factory = _make_path_factory(self._script_file, tmp_path)
+        mocker.patch("sys.exit", side_effect=SystemExit)
+        mocker.patch("cleanup_stale_tests.Path", side_effect=factory)
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        captured = capsys.readouterr()
+        assert "SKIP" in captured.out
+        assert "test_main.py" in captured.out
+
+    # ------------------------------------------------------------------ #
+    # Line 101: removed blocks → print "Removed stale test blocks: ..."   #
+    # ------------------------------------------------------------------ #
+
+    def test_real_main_with_stale_blocks_prints_removed_names(self, tmp_path, mocker, capsys):
+        """Line 101: real main() prints removed block names when stale blocks exist."""
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "main.py").write_text("def live_func(): pass\n", encoding="utf-8")
+        (tests_dir / "test_main.py").write_text(
+            "# ── auto-generated: dead_func ──\n"
+            "class TestDeadFunc:\n"
+            "    def test_dead(self):\n"
+            "        pass\n",
+            encoding="utf-8",
+        )
+
+        factory = _make_path_factory(self._script_file, tmp_path)
+        mocker.patch("cleanup_stale_tests.Path", side_effect=factory)
+
+        cst.main()
+
+        captured = capsys.readouterr()
+        assert "Removed stale test blocks:" in captured.out
+        assert "dead_func" in captured.out
+
+    def test_real_main_with_stale_blocks_modifies_file(self, tmp_path, mocker):
+        """Line 101: real main() removes stale blocks from the test file."""
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "main.py").write_text("def alive(): pass\n", encoding="utf-8")
+        test_file = tests_dir / "test_main.py"
+        test_file.write_text(
+            "# ── auto-generated: gone_func ──\n"
+            "class TestGoneFunc:\n"
+            "    def test_g(self):\n"
+            "        pass\n",
+            encoding="utf-8",
+        )
+
+        factory = _make_path_factory(self._script_file, tmp_path)
+        mocker.patch("cleanup_stale_tests.Path", side_effect=factory)
+        mocker.patch("builtins.print")
+
+        cst.main()
+
+        assert "TestGoneFunc" not in test_file.read_text(encoding="utf-8")
+
+    # ------------------------------------------------------------------ #
+    # Line 101 (via __main__ guard): runpy with init_globals Path factory  #
+    # ------------------------------------------------------------------ #
+
+    def test_dunder_main_guard_runs_via_runpy_with_stale_blocks(self, tmp_path, mocker, capsys):
+        """Line 101 + __main__ guard: call real cst.main() directly with stale blocks.
+
+        Patches ``cleanup_stale_tests.Path`` (not pathlib.Path globally) so that
+        main() resolves its base directory to tmp_path.  A stale block for
+        'stale_fn' (absent from main.py) should be removed and reported."""
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "main.py").write_text("def fn(): pass\n", encoding="utf-8")
+        test_file = tests_dir / "test_main.py"
+        test_file.write_text(
+            "# ── auto-generated: stale_fn ──\n"
+            "class TestStaleFn:\n"
+            "    def test_s(self):\n"
+            "        pass\n",
+            encoding="utf-8",
+        )
+
+        factory = _make_path_factory(self._script_file, tmp_path)
+        mocker.patch("cleanup_stale_tests.Path", side_effect=factory)
+
+        cst.main()
+
+        captured = capsys.readouterr()
+        assert "Removed stale test blocks:" in captured.out
+        assert "stale_fn" in captured.out

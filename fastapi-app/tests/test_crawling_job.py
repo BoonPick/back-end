@@ -1229,6 +1229,8 @@ class TestCrawlJobsMainBlock:
             "bs4_mod = types.ModuleType('bs4')\n"
             "bs4_mod.BeautifulSoup = lambda *a, **k: None\n"
             "sys.modules.setdefault('bs4', bs4_mod)\n"
+            "# Ensure the fastapi-app directory is on sys.path so crawling_job can be found\n"
+            "sys.path.insert(0, '/tmp/back-end/fastapi-app')\n"
             "# Patch crawl_jobs before __main__ runs\n"
             "import crawling_job\n"
             "crawling_job.crawl_jobs = lambda page_count=3: print('MOCKED', page_count)\n"
@@ -1244,3 +1246,91 @@ class TestCrawlJobsMainBlock:
             timeout=15,
         )
         assert "MOCKED 3" in result.stdout or result.returncode == 0
+
+
+import runpy
+import sys
+import subprocess
+from unittest.mock import MagicMock
+
+# ── auto-generated: crawl_jobs_main ──
+class TestCrawlJobsMainEntryPoint:
+    """Cover line 400 – the ``if __name__ == '__main__': crawl_jobs(page_count=3)``
+    guard – by executing crawling_job.py as __main__ with crawl_jobs patched so
+    no real network or database I/O occurs."""
+
+    def test_main_block_via_runpy(self, mocker):
+        """Use runpy.run_path to execute crawling_job.py as __main__.
+
+        mysql.connector.connect and playwright.sync_api.sync_playwright are
+        patched so the real implementation (which needs a browser and DB) is
+        never invoked.  Line 400 is reached and executed through the __main__
+        guard.
+        """
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = MagicMock()
+        mock_conn.cursor.return_value.fetchall.return_value = []
+
+        # Build a playwright mock whose page.content() returns empty HTML so
+        # BeautifulSoup receives a string, not a MagicMock.
+        mock_page = MagicMock()
+        mock_page.content.return_value = ""
+        mock_context = MagicMock()
+        mock_context.new_page.return_value = mock_page
+        mock_browser = MagicMock()
+        mock_browser.new_context.return_value = mock_context
+        mock_pw = MagicMock()
+        mock_pw.chromium.launch.return_value = mock_browser
+        mock_playwright_cm = MagicMock()
+        mock_playwright_cm.__enter__ = MagicMock(return_value=mock_pw)
+        mock_playwright_cm.__exit__ = MagicMock(return_value=False)
+        mock_sync_playwright = MagicMock(return_value=mock_playwright_cm)
+
+        mocker.patch("mysql.connector.connect", return_value=mock_conn)
+        mocker.patch("playwright.sync_api.sync_playwright", new=mock_sync_playwright)
+        mocker.patch.dict("os.environ", {"SAINT_ID": "test_id", "SAINT_PW": "test_pw"})
+
+        runpy.run_path(
+            "/tmp/back-end/fastapi-app/crawling_job.py",
+            run_name="__main__",
+        )
+
+        mock_conn.cursor.assert_called()
+
+    def test_main_block_via_subprocess(self, mocker):
+        """Execute crawling_job.py as __main__ via runpy in the main process.
+
+        mysql.connector.connect and playwright.sync_api.sync_playwright are
+        patched so the real implementation (which needs a browser and DB) is
+        never invoked.  Line 400 is reached and executed through the __main__
+        guard.
+        """
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = MagicMock()
+        mock_conn.cursor.return_value.fetchall.return_value = []
+
+        # Build a playwright mock whose page.content() returns empty HTML so
+        # BeautifulSoup receives a string, not a MagicMock.
+        mock_page = MagicMock()
+        mock_page.content.return_value = ""
+        mock_context = MagicMock()
+        mock_context.new_page.return_value = mock_page
+        mock_browser = MagicMock()
+        mock_browser.new_context.return_value = mock_context
+        mock_pw = MagicMock()
+        mock_pw.chromium.launch.return_value = mock_browser
+        mock_playwright_cm = MagicMock()
+        mock_playwright_cm.__enter__ = MagicMock(return_value=mock_pw)
+        mock_playwright_cm.__exit__ = MagicMock(return_value=False)
+        mock_sync_playwright = MagicMock(return_value=mock_playwright_cm)
+
+        mocker.patch("mysql.connector.connect", return_value=mock_conn)
+        mocker.patch("playwright.sync_api.sync_playwright", new=mock_sync_playwright)
+        mocker.patch.dict("os.environ", {"SAINT_ID": "test_id", "SAINT_PW": "test_pw"})
+
+        runpy.run_path(
+            "/tmp/back-end/fastapi-app/crawling_job.py",
+            run_name="__main__",
+        )
+
+        mock_conn.cursor.assert_called()
