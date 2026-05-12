@@ -1,0 +1,48 @@
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: boonpick-prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    extra_hosts:
+      # 컨테이너 안에서 호스트의 FastAPI에 접근하기 위해 필요(리눅스 Docker Engine 환경 대응).
+      # Docker Desktop(맥/윈도우)에서는 자동으로 해석되지만, 명시해 두면 리눅스에서도 동작합니다.
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: boonpick-grafana
+    ports:
+      - "3001:3000"   # 호스트 3000번은 다른 곳에서 쓸 수 있어 3001로 매핑. http://localhost:3001 로 접속.
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin   # 최초 로그인 후 변경 권장
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+      - GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES=false
+      - GF_PLUGINS_PREINSTALL_AUTO_UPDATE=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: boonpick-node-exporter
+    ports:
+      - "9100:9100"
+    # 맥(Docker Desktop)에서는 호스트 경로 마운트 효과가 제한적이지만, 리눅스 환경 호환을 위해 표준 옵션 유지.
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+
+volumes:
+  grafana-data:
