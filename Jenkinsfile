@@ -51,22 +51,36 @@ pipeline {
 
         stage('Setup Environment & Install Dependencies') {
             steps {
-                sh '''
-                    python3 -m venv venv
-                    . venv/bin/activate
-                    pip install --upgrade pip
-                    pip install -r fastapi-app/requirements.txt
-                '''
+                script {
+                    try {
+                        sh '''
+                            python3 -m venv venv
+                            . venv/bin/activate
+                            pip install --upgrade pip
+                            pip install -r fastapi-app/requirements.txt
+                        '''
+                    } catch (Exception e) {
+                        echo "STAGE_ERROR: ${e.getMessage()}"
+                        throw e
+                    }
+                }
             }
         }
 
         stage('Cleanup Stale Tests') {
             steps {
-                sh '''
-                    . venv/bin/activate
-                    cd fastapi-app
-                    python scripts/cleanup_stale_tests.py
-                '''
+                script {
+                    try {
+                        sh '''
+                            . venv/bin/activate
+                            cd fastapi-app
+                            python scripts/cleanup_stale_tests.py
+                        '''
+                    } catch (Exception e) {
+                        echo "STAGE_ERROR: ${e.getMessage()}"
+                        throw e
+                    }
+                }
             }
         }
 
@@ -112,14 +126,19 @@ pipeline {
         stage('Build and Push to Docker Hub') {
             steps {
                 script {
-                    docker.withRegistry('', "${DOCKER_HUB_CREDS}") {
-                        def myImage = docker.build("${IMAGE_NAME}:${env.IMAGE_TAG}")
-                        myImage.push()
+                    try {
+                        docker.withRegistry('', "${DOCKER_HUB_CREDS}") {
+                            def myImage = docker.build("${IMAGE_NAME}:${env.IMAGE_TAG}")
+                            myImage.push()
 
-                        // main 브랜치만 latest 태그 갱신
-                        if (env.DEPLOY_BRANCH == 'main') {
-                            myImage.push('latest')
+                            // main 브랜치만 latest 태그 갱신
+                            if (env.DEPLOY_BRANCH == 'main') {
+                                myImage.push('latest')
+                            }
                         }
+                    } catch (Exception e) {
+                        echo "STAGE_ERROR: ${e.getMessage()}"
+                        throw e
                     }
                 }
             }
@@ -136,28 +155,33 @@ pipeline {
 
                     echo "컨테이너: ${containerName}  포트: ${hostPort}"
 
-                    sshagent(["${SSH_CRED_ID}"]) {
-                        sh """
-                            ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_SERVER} "
-                                docker pull ${IMAGE_NAME}:${env.IMAGE_TAG} && \\
-                                docker stop ${containerName} 2>/dev/null || true && \\
-                                docker rm   ${containerName} 2>/dev/null || true && \\
-                                docker run -d --name ${containerName} -p ${hostPort}:8000 \\
-                                    -e DB_HOST='${env.DB_HOST}' \\
-                                    -e DB_USER='${env.DB_USER}' \\
-                                    -e DB_PASSWORD='${env.DB_PASSWORD}' \\
-                                    -e SAINT_ID='${env.SAINT_ID}' \\
-                                    -e SAINT_PW='${env.SAINT_PW}' \\
-                                    -e SMTP_HOST=smtp.gmail.com \\
-                                    -e SMTP_PORT=587 \\
-                                    -e SMTP_USER='${env.SMTP_USER}' \\
-                                    -e SMTP_PASSWORD='${env.SMTP_PASSWORD}' \\
-                                    -e MAIL_FROM_NAME=BoonPick \\
-                                    -e MAIL_FROM_EMAIL='${env.SMTP_USER}' \\
-                                    ${IMAGE_NAME}:${env.IMAGE_TAG} && \\
-                                docker image prune -f
-                            "
-                        """
+                    try {
+                        sshagent(["${SSH_CRED_ID}"]) {
+                            sh """
+                                ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_SERVER} "
+                                    docker pull ${IMAGE_NAME}:${env.IMAGE_TAG} && \\
+                                    docker stop ${containerName} 2>/dev/null || true && \\
+                                    docker rm   ${containerName} 2>/dev/null || true && \\
+                                    docker run -d --name ${containerName} -p ${hostPort}:8000 \\
+                                        -e DB_HOST='${env.DB_HOST}' \\
+                                        -e DB_USER='${env.DB_USER}' \\
+                                        -e DB_PASSWORD='${env.DB_PASSWORD}' \\
+                                        -e SAINT_ID='${env.SAINT_ID}' \\
+                                        -e SAINT_PW='${env.SAINT_PW}' \\
+                                        -e SMTP_HOST=smtp.gmail.com \\
+                                        -e SMTP_PORT=587 \\
+                                        -e SMTP_USER='${env.SMTP_USER}' \\
+                                        -e SMTP_PASSWORD='${env.SMTP_PASSWORD}' \\
+                                        -e MAIL_FROM_NAME=BoonPick \\
+                                        -e MAIL_FROM_EMAIL='${env.SMTP_USER}' \\
+                                        ${IMAGE_NAME}:${env.IMAGE_TAG} && \\
+                                    docker image prune -f
+                                "
+                            """
+                        }
+                    } catch (Exception e) {
+                        echo "STAGE_ERROR: ${e.getMessage()}"
+                        throw e
                     }
                 }
             }
@@ -202,7 +226,8 @@ pipeline {
                     withCredentials([string(credentialsId: 'GROQ_API_KEY', variable: 'GROQ_API_KEY')]) {
                         // 3. curl로 API 호출 (API 키는 보안을 위해 쉘 환경변수로 전달, 작은따옴표 3개 사용으로 Groovy 변수 보간 방지)
                         sh '''
-                            curl -sf -X POST "https://api.groq.com/openai/v1/chat/completions" \
+                            curl -sf --max-time 30 --connect-timeout 10 \
+                                 -X POST "https://api.groq.com/openai/v1/chat/completions" \
                                  -H "Authorization: Bearer $GROQ_API_KEY" \
                                  -H "Content-Type: application/json" \
                                  -d @groq_request.json \
@@ -232,7 +257,7 @@ pipeline {
                              <b>Console Log:</b> <a href="${env.BUILD_URL}console">${env.BUILD_URL}console</a></p>
                              <hr>
                              <h3>🤖 Groq AI의 에러 분석 및 해결 제안</h3>
-                             <pre style="background-color: #f4f4f4; padding: 15px; border-radius: 5px; white-space: pre-wrap; font-family: inherit; font-size: 14px;">${env.AI_ANALYSIS}</pre>
+                             <pre style="background-color: #f4f4f4; padding: 15px; border-radius: 5px; white-space: pre-wrap; font-family: inherit; font-size: 14px;">${env.AI_ANALYSIS.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</pre>
                          </div>""",
                 to: 'kjyyoung0305@gmail.com, yooncy0511@gmail.com, lee.moonjeong@gmail.com, wq0212@naver.com',
                 mimeType: 'text/html'
