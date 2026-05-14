@@ -1011,3 +1011,44 @@ class TestTriggerNotificationBatch:
         assert list(body.keys()) == ["emails_sent"]
 
 
+# ── auto-generated: read_index ──
+import tempfile
+import os as _os
+from fastapi.responses import Response as _FastAPIResponse
+
+class TestReadIndexFileBranch:
+    """Covers line 840: the FileResponse branch when templates/index.html EXISTS."""
+
+    def test_returns_200_when_template_exists(self):
+        """Mock os.path.exists to return True so FileResponse branch (line 840) is hit."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create an actual index.html so FileResponse can serve it
+            template_dir = _os.path.join(tmpdir, "templates")
+            _os.makedirs(template_dir)
+            index_path = _os.path.join(template_dir, "index.html")
+            with open(index_path, "w") as f:
+                f.write("<html><body>Hello</body></html>")
+
+            # Patch os.path.exists so the endpoint sees the file as present,
+            # and patch FileResponse to return a simple Response to avoid path issues.
+            with patch("main.os.path.exists", return_value=True), \
+                 patch("main.FileResponse", return_value=_FastAPIResponse(content="<html></html>", media_type="text/html", status_code=200)):
+                resp = client.get("/")
+        assert resp.status_code == 200
+
+    def test_fileresponse_branch_called_with_correct_path(self):
+        """Verify FileResponse is called with 'templates/index.html' when file exists."""
+        with patch("main.os.path.exists", return_value=True) as mock_exists, \
+             patch("main.FileResponse", return_value=_FastAPIResponse(content="ok", media_type="text/html", status_code=200)) as mock_fr:
+            resp = client.get("/")
+
+        mock_exists.assert_called_with("templates/index.html")
+        mock_fr.assert_called_once_with("templates/index.html")
+        assert resp.status_code == 200
+
+    def test_returns_404_when_template_missing(self):
+        """Confirm the 404 branch when os.path.exists returns False (line 839)."""
+        with patch("main.os.path.exists", return_value=False):
+            resp = client.get("/")
+        assert resp.status_code == 404
+

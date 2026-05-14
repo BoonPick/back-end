@@ -1,5 +1,7 @@
+import runpy
 import pytest
 from datetime import date
+from unittest.mock import patch
 from bs4 import BeautifulSoup
 from crawling_job import (
     _parse_deadline, _span_text, _parse_detail, _extract_rcdx_list,
@@ -1215,6 +1217,7 @@ class TestCrawlJobsMainBlock:
         # replaced before the __main__ guard fires.
         wrapper = (
             "import sys, types\n"
+            "sys.path.insert(0, '/tmp/back-end/fastapi-app')\n"
             "# Stub playwright.sync_api with required attributes\n"
             "pw_sync = types.ModuleType('playwright.sync_api')\n"
             "pw_sync.sync_playwright = lambda: None\n"
@@ -1244,3 +1247,95 @@ class TestCrawlJobsMainBlock:
             timeout=15,
         )
         assert "MOCKED 3" in result.stdout or result.returncode == 0
+
+
+# ── auto-generated: __main__ ──
+class TestCrawlJobsDunderMain:
+    """Covers line 400: crawl_jobs(page_count=3) inside the __main__ guard.
+
+    The __main__ guard in crawling_job.py is:
+        if __name__ == "__main__":
+            crawl_jobs(page_count=3)
+
+    runpy.run_path re-executes the entire module source in a fresh, isolated
+    namespace, so patches on crawling_job.*  attributes do not affect the
+    re-executed code.  Instead, we patch at the underlying *imported module*
+    level (mysql.connector.connect and playwright.sync_api.sync_playwright)
+    so that every copy of the code — original and re-executed — sees the
+    same mock objects.  We then make the Playwright page return empty HTML
+    so _collect_rcdx_all_pages returns [] and crawl_jobs exits quickly.
+
+    Verification: mysql.connector.connect is called exactly once, proving
+    that crawl_jobs ran (it calls get_db_connection → connect at startup).
+    The first page.goto call uses LIST_URL, proving _collect_rcdx_all_pages
+    was entered (which only happens when crawl_jobs receives page_count ≥ 1).
+    """
+
+    def test_main_guard_calls_crawl_jobs_with_page_count_3(self, mocker, monkeypatch):
+        """Run crawling_job.py as __main__ via runpy.run_path.  All network
+        and DB I/O is suppressed by patching mysql.connector and
+        playwright.sync_api at the imported-module level.  Asserts that the
+        DB connection was opened (proof crawl_jobs executed) and that the
+        job-listing URL was fetched (proof the collection loop ran), with no
+        real MySQL or Playwright connections made."""
+        import os
+        import runpy
+        import mysql.connector as _mc
+        import playwright.sync_api as _pw_api
+
+        monkeypatch.setenv("SAINT_ID", "testuser")
+        monkeypatch.setenv("SAINT_PW", "testpass")
+
+        # --- MySQL stub ---
+        mock_cursor = mocker.MagicMock()
+        mock_conn = mocker.MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+        mock_connect = mocker.patch.object(_mc, "connect", return_value=mock_conn)
+
+        # --- Playwright stub ---
+        mock_page = mocker.MagicMock()
+        # Return empty HTML so _collect_rcdx_all_pages exits after one page.
+        mock_page.content.return_value = "<html><body></body></html>"
+        mock_page.goto.return_value = None
+        mock_page.url = "https://job.sogang.ac.kr/main/index.aspx"
+        mock_page.wait_for_url.return_value = None
+        # Make locator().first.is_visible() return True so _login succeeds.
+        mock_el = mocker.MagicMock()
+        mock_el.is_visible.return_value = True
+        mock_locator = mocker.MagicMock()
+        mock_locator.first = mock_el
+        mock_page.locator.return_value = mock_locator
+
+        mock_context = mocker.MagicMock()
+        mock_context.new_page.return_value = mock_page
+        mock_browser = mocker.MagicMock()
+        mock_browser.new_context.return_value = mock_context
+        mock_pw = mocker.MagicMock()
+        mock_pw.chromium.launch.return_value = mock_browser
+        mock_pw_cm = mocker.MagicMock()
+        mock_pw_cm.__enter__ = mocker.MagicMock(return_value=mock_pw)
+        mock_pw_cm.__exit__ = mocker.MagicMock(return_value=False)
+        mocker.patch.object(_pw_api, "sync_playwright", return_value=mock_pw_cm)
+
+        crawling_job_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "crawling_job.py",
+        )
+
+        # Execute the module as __main__ — this runs the guard on line 399
+        # which calls crawl_jobs(page_count=3).
+        runpy.run_path(crawling_job_path, run_name="__main__")
+
+        # crawl_jobs always opens a DB connection first — exactly one call.
+        mock_connect.assert_called_once()
+        # The collection loop navigates to LIST_URL — proves crawl_jobs ran
+        # with page_count ≥ 1 (i.e., the __main__ call with page_count=3).
+        list_url_calls = [
+            c for c in mock_page.goto.call_args_list
+            if "RecruitList_Chiup.aspx" in str(c)
+        ]
+        assert len(list_url_calls) >= 1, (
+            "Expected page.goto to be called with LIST_URL inside "
+            "_collect_rcdx_all_pages, but it was not — crawl_jobs may not "
+            "have been invoked with page_count=3 by the __main__ guard."
+        )
