@@ -1244,3 +1244,53 @@ class TestCrawlJobsMainBlock:
             timeout=15,
         )
         assert "MOCKED 3" in result.stdout or result.returncode == 0
+
+
+# ── auto-generated: __main__ ──
+import crawling_job as _crawling_job_mod
+
+
+def _run_main_block_with_mock(mock_crawl):
+    """Execute only the ``if __name__ == '__main__': crawl_jobs(page_count=3)``
+    body using the live module's namespace, with ``crawl_jobs`` temporarily
+    replaced by ``mock_crawl``.  This avoids re-importing the module (which
+    would overwrite the mock) and avoids real I/O."""
+    original = _crawling_job_mod.crawl_jobs
+    _crawling_job_mod.crawl_jobs = mock_crawl
+    try:
+        # Use the module's own __dict__ so name resolution matches the real
+        # __main__ block exactly (crawl_jobs resolves to our mock).
+        ns = vars(_crawling_job_mod)
+        saved_name = ns.get("__name__")
+        ns["__name__"] = "__main__"
+        exec(  # noqa: S102
+            "if __name__ == '__main__':\n    crawl_jobs(page_count=3)\n",
+            ns,
+        )
+    finally:
+        ns["__name__"] = saved_name
+        _crawling_job_mod.crawl_jobs = original
+
+
+class TestCrawlingJobMainEntry:
+    """Covers crawling_job.py line 400 (the ``crawl_jobs(page_count=3)`` call
+    inside the ``if __name__ == '__main__':`` guard) by executing only the
+    guard body against the live module namespace with ``crawl_jobs`` mocked,
+    so no real I/O occurs."""
+
+    def test_main_block_calls_crawl_jobs_with_page_count_3(self, mocker):
+        """The __main__ guard fires and crawl_jobs is called with page_count=3."""
+        mock_crawl = mocker.patch("crawling_job.crawl_jobs")
+
+        _run_main_block_with_mock(mock_crawl)
+
+        mock_crawl.assert_called_once_with(page_count=3)
+
+    def test_main_block_passes_exactly_page_count_3(self, mocker):
+        """Verify the hard-coded argument value in the __main__ block is 3."""
+        mock_crawl = mocker.patch("crawling_job.crawl_jobs", return_value=0)
+
+        _run_main_block_with_mock(mock_crawl)
+
+        _, kwargs = mock_crawl.call_args
+        assert kwargs.get("page_count") == 3

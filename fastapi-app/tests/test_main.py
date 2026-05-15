@@ -1011,3 +1011,39 @@ class TestTriggerNotificationBatch:
         assert list(body.keys()) == ["emails_sent"]
 
 
+# ── auto-generated: read_index ──
+class TestReadIndex404Branch:
+    """Covers main.py line 839: the ``return Response(status_code=404)`` branch
+    that fires when ``templates/index.html`` does not exist on disk.
+
+    The existing TestReadIndex class does not explicitly mock os.path.exists,
+    so line 839 may be skipped if the file happens to exist.  These tests
+    patch ``main.os.path.exists`` directly to guarantee the missing-file branch
+    is exercised."""
+
+    def test_returns_404_when_template_missing(self):
+        """When os.path.exists('templates/index.html') is False the endpoint
+        must return HTTP 404 (line 839 is executed)."""
+        with patch("main.os.path.exists", return_value=False):
+            resp = client.get("/")
+        assert resp.status_code == 404
+
+    def test_404_response_body_is_empty(self):
+        """The 404 response returned on line 839 carries no JSON body."""
+        with patch("main.os.path.exists", return_value=False):
+            resp = client.get("/")
+        assert resp.status_code == 404
+        assert resp.content == b""
+
+    def test_returns_200_when_template_exists(self, tmp_path):
+        """When os.path.exists returns True the endpoint serves the file
+        (line 839 is *not* taken); patch FileResponse to avoid filesystem I/O."""
+        with patch("main.os.path.exists", return_value=True) as mock_exists, \
+             patch("main.FileResponse") as mock_fr:
+            mock_fr.return_value = mock_fr  # make it callable/iterable for ASGI
+            resp = client.get("/")
+            # os.path.exists was called with the expected path (assert while mock is active)
+            mock_exists.assert_called_with("templates/index.html")
+        # The 404 branch was not taken
+        assert resp.status_code == 200
+
