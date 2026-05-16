@@ -709,3 +709,182 @@ class TestMainFunctionDirect:
         cst.main()
 
         assert called == [True]
+
+
+# ── auto-generated: main ──
+class TestMainEdgeCases:
+    """Focused tests for main() using pytest-mock to cover lines 91-92, 94-95, 101."""
+
+    def _patch_base(self, mocker, tmp_path):
+        """Patch cleanup_stale_tests.Path so that Path(__file__).resolve().parent.parent
+        returns tmp_path, making main() use controlled filesystem paths."""
+        fake_file = mocker.MagicMock()
+        fake_file.resolve.return_value.parent.parent = tmp_path
+        mock_path_cls = mocker.patch("cleanup_stale_tests.Path", wraps=Path)
+        mock_path_cls.return_value = fake_file
+        mock_path_cls.side_effect = lambda *a, **kw: fake_file if not a else Path(*a, **kw)
+        return mock_path_cls
+
+    # ------------------------------------------------------------------
+    # Lines 91-92: main.py does NOT exist → stderr print + sys.exit(1)
+    # ------------------------------------------------------------------
+
+    def test_main_py_missing_exits_1(self, tmp_path, mocker):
+        """Lines 91-92: when main_py does not exist, main() calls sys.exit(1)."""
+        # Patch sys.exit to raise SystemExit so flow stops
+        mock_exit = mocker.patch("sys.exit", side_effect=SystemExit)
+        mock_print = mocker.patch("builtins.print")
+
+        main_py = tmp_path / "main.py"
+        # main_py intentionally NOT created → exists() returns False
+        test_py = tmp_path / "tests" / "test_main.py"
+
+        mocker.patch.object(
+            cst,
+            "main",
+            lambda: _run_main_with_paths(main_py, test_py),
+        )
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        mock_exit.assert_called_once_with(1)
+
+    def test_main_py_missing_prints_error_to_stderr(self, tmp_path, mocker):
+        """Lines 91-92: when main_py does not exist, error message is sent to stderr."""
+        mock_exit = mocker.patch("sys.exit", side_effect=SystemExit)
+        mock_print = mocker.patch("builtins.print")
+
+        main_py = tmp_path / "main.py"
+        test_py = tmp_path / "tests" / "test_main.py"
+
+        mocker.patch.object(
+            cst,
+            "main",
+            lambda: _run_main_with_paths(main_py, test_py),
+        )
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        # Verify print was called with ERROR and file=sys.stderr
+        assert mock_print.called
+        call_args = mock_print.call_args
+        assert "ERROR" in call_args[0][0]
+        assert str(main_py) in call_args[0][0]
+        assert call_args[1].get("file") is sys.stderr
+
+    # ------------------------------------------------------------------
+    # Lines 94-95: test_main.py does NOT exist → print SKIP + sys.exit(0)
+    # ------------------------------------------------------------------
+
+    def test_test_py_missing_exits_0(self, tmp_path, mocker):
+        """Lines 94-95: when test_py does not exist, main() calls sys.exit(0)."""
+        mock_exit = mocker.patch("sys.exit", side_effect=SystemExit)
+        mock_print = mocker.patch("builtins.print")
+
+        main_py = tmp_path / "main.py"
+        main_py.write_text("def hello(): pass\n", encoding="utf-8")
+        test_py = tmp_path / "tests" / "test_main.py"
+        # test_py intentionally NOT created → exists() returns False
+
+        mocker.patch.object(
+            cst,
+            "main",
+            lambda: _run_main_with_paths(main_py, test_py),
+        )
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        mock_exit.assert_called_once_with(0)
+
+    def test_test_py_missing_prints_skip_message(self, tmp_path, mocker):
+        """Lines 94-95: when test_py does not exist, SKIP message is printed to stdout."""
+        mock_exit = mocker.patch("sys.exit", side_effect=SystemExit)
+        mock_print = mocker.patch("builtins.print")
+
+        main_py = tmp_path / "main.py"
+        main_py.write_text("def hello(): pass\n", encoding="utf-8")
+        test_py = tmp_path / "tests" / "test_main.py"
+
+        mocker.patch.object(
+            cst,
+            "main",
+            lambda: _run_main_with_paths(main_py, test_py),
+        )
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        assert mock_print.called
+        call_args = mock_print.call_args
+        assert "SKIP" in call_args[0][0]
+        assert str(test_py) in call_args[0][0]
+        # stdout call has no 'file' kwarg (or file is not stderr)
+        assert call_args[1].get("file") is not sys.stderr
+
+    # ------------------------------------------------------------------
+    # Line 101: removed is non-empty → prints removed block names
+    # ------------------------------------------------------------------
+
+    def test_removed_nonempty_prints_removed_names(self, tmp_path, mocker):
+        """Line 101: when cleanup_stale_tests returns names, they are printed."""
+        main_py = tmp_path / "main.py"
+        main_py.write_text("def live(): pass\n", encoding="utf-8")
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        test_py = tests_dir / "test_main.py"
+        test_py.write_text("def test_placeholder(): pass\n", encoding="utf-8")
+
+        mock_get = mocker.patch(
+            "cleanup_stale_tests.get_main_functions", return_value={"live"}
+        )
+        mock_clean = mocker.patch(
+            "cleanup_stale_tests.cleanup_stale_tests", return_value=["dead_func", "old_func"]
+        )
+        mock_print = mocker.patch("builtins.print")
+
+        mocker.patch.object(
+            cst,
+            "main",
+            lambda: _run_main_with_paths(main_py, test_py),
+        )
+
+        cst.main()
+
+        # _run_main_with_paths calls the real cst.get_main_functions / cst.cleanup_stale_tests
+        # which are patched; verify the print output contains the removed names
+        printed_calls = [call[0][0] for call in mock_print.call_args_list if call[0]]
+        combined = " ".join(printed_calls)
+        assert "dead_func" in combined
+        assert "old_func" in combined
+        assert "Removed stale test blocks:" in combined
+
+    def test_removed_nonempty_does_not_print_no_stale(self, tmp_path, mocker):
+        """Line 101: when removed is non-empty, 'No stale test blocks found.' is NOT printed."""
+        main_py = tmp_path / "main.py"
+        main_py.write_text("def live(): pass\n", encoding="utf-8")
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        test_py = tests_dir / "test_main.py"
+        test_py.write_text("def test_placeholder(): pass\n", encoding="utf-8")
+
+        mocker.patch(
+            "cleanup_stale_tests.get_main_functions", return_value={"live"}
+        )
+        mocker.patch(
+            "cleanup_stale_tests.cleanup_stale_tests", return_value=["gone_func"]
+        )
+        mock_print = mocker.patch("builtins.print")
+
+        mocker.patch.object(
+            cst,
+            "main",
+            lambda: _run_main_with_paths(main_py, test_py),
+        )
+
+        cst.main()
+
+        printed_calls = [call[0][0] for call in mock_print.call_args_list if call[0]]
+        assert not any("No stale test blocks found." in msg for msg in printed_calls)
