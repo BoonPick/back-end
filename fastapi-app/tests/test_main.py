@@ -12,6 +12,7 @@ from datetime import datetime
 
 import main
 from main import app
+from starlette.responses import Response
 
 client = TestClient(app)
 
@@ -1010,4 +1011,12 @@ class TestTriggerNotificationBatch:
         body = resp.json()
         assert list(body.keys()) == ["emails_sent"]
 
+
+# ── auto-generated: read_index ──
+class TestReadIndexHappyPath:
+    def test_read_index_returns_file_when_template_exists(self, mocker):
+        mocker.patch("main.os.path.exists", return_value=True)
+        mocker.patch("main.FileResponse", return_value=Response(status_code=200))
+        resp = client.get("/")
+        assert resp.status_code == 200
 
