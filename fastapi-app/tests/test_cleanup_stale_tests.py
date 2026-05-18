@@ -709,3 +709,144 @@ class TestMainFunctionDirect:
         cst.main()
 
         assert called == [True]
+
+
+# ── auto-generated: main ──
+class TestMainRealBody:
+    """Tests that invoke the *real* main() body (lines 85-107) by patching
+    Path.__new__ / the module-level Path so that the hardcoded
+    ``Path(__file__).resolve().parent.parent`` chain resolves to a tmp dir.
+
+    This is the correct way to hit lines 91, 92, 94, 95, and 101 in
+    coverage, because the existing tests only call a helper wrapper rather
+    than cst.main() itself.
+    """
+
+    # ------------------------------------------------------------------
+    # Helper: build a fake 'base' layout inside tmp_path and redirect
+    # the Path chain used inside main().
+    # ------------------------------------------------------------------
+
+    def _patch_base(self, monkeypatch, tmp_path):
+        """Monkey-patch cst.Path so that Path(__file__).resolve().parent.parent
+        returns *tmp_path*.  All other Path usage (sub-path / operator) falls
+        through to the real pathlib.Path so that .exists() / .write_text() work."""
+        import pathlib
+
+        real_Path = pathlib.Path
+
+        class _FakePathMeta(type):
+            pass
+
+        call_count = {"n": 0}
+
+        original_cst_path = cst.Path
+
+        def fake_path_call(arg=None, *args, **kwargs):
+            # Called as Path(__file__) inside main() — redirect to a sentinel
+            # that has .resolve().parent.parent == tmp_path.
+            sentinel = real_Path(tmp_path)
+
+            class _Sentinel:
+                def resolve(self_inner):
+                    class _Resolved:
+                        @property
+                        def parent(self_r):
+                            class _Parent1:
+                                @property
+                                def parent(self_p):
+                                    return real_Path(tmp_path)
+                            return _Parent1()
+                    return _Resolved()
+
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                # First call is Path(__file__) — intercept
+                return _Sentinel()
+            # Any subsequent direct Path() calls fall through
+            return real_Path(arg, *args, **kwargs)
+
+        monkeypatch.setattr(cst, "Path", fake_path_call)
+        return tmp_path
+
+    # ------------------------------------------------------------------
+    # Scenario: main.py does NOT exist → print error to stderr, exit(1)
+    # lines 90-92
+    # ------------------------------------------------------------------
+
+    def test_real_main_exits_1_when_main_py_missing(self, tmp_path, monkeypatch, capsys):
+        """main() calls sys.exit(1) when main.py is absent (lines 91-92)."""
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        # main.py intentionally NOT created
+        self._patch_base(monkeypatch, tmp_path)
+
+        with pytest.raises(SystemExit) as exc_info:
+            cst.main()
+
+        assert exc_info.value.code == 1
+
+    def test_real_main_prints_error_to_stderr_when_main_py_missing(self, tmp_path, monkeypatch, capsys):
+        """main() prints 'ERROR' to stderr when main.py is absent (lines 91-92)."""
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        self._patch_base(monkeypatch, tmp_path)
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        captured = capsys.readouterr()
+        assert "ERROR" in captured.err
+
+    # ------------------------------------------------------------------
+    # Scenario: main.py exists, test_py does NOT exist → print SKIP, exit(0)
+    # lines 93-95
+    # ------------------------------------------------------------------
+
+    def test_real_main_exits_0_when_test_py_missing(self, tmp_path, monkeypatch, capsys):
+        """main() calls sys.exit(0) when test_main.py is absent (lines 94-95)."""
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "main.py").write_text("def hello(): pass\n", encoding="utf-8")
+        # test_py intentionally NOT created
+        self._patch_base(monkeypatch, tmp_path)
+
+        with pytest.raises(SystemExit) as exc_info:
+            cst.main()
+
+        assert exc_info.value.code == 0
+
+    def test_real_main_prints_skip_when_test_py_missing(self, tmp_path, monkeypatch, capsys):
+        """main() prints 'SKIP' to stdout when test_main.py is absent (lines 94-95)."""
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "main.py").write_text("def hello(): pass\n", encoding="utf-8")
+        self._patch_base(monkeypatch, tmp_path)
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        captured = capsys.readouterr()
+        assert "SKIP" in captured.out
+
+    # ------------------------------------------------------------------
+    # Scenario: stale blocks removed → "Removed stale test blocks: ..."
+    # line 101
+    # ------------------------------------------------------------------
+
+    def test_real_main_prints_removed_block_names(self, tmp_path, monkeypatch, capsys):
+        """main() prints removed block names when cleanup_stale_tests removes blocks (line 101)."""
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "main.py").write_text("def live_func(): pass\n", encoding="utf-8")
+        # test_py contains a stale block for 'dead_func' (not in main.py)
+        (tests_dir / "test_main.py").write_text(
+            "# ── auto-generated: dead_func ──\n"
+            "class TestDeadFunc:\n"
+            "    def test_dead(self):\n"
+            "        pass\n",
+            encoding="utf-8",
+        )
+        self._patch_base(monkeypatch, tmp_path)
+
+        cst.main()
+
+        captured = capsys.readouterr()
+        assert "Removed stale test blocks:" in captured.out
+        assert "dead_func" in captured.out

@@ -1011,3 +1011,31 @@ class TestTriggerNotificationBatch:
         assert list(body.keys()) == ["emails_sent"]
 
 
+# ── auto-generated: read_index ──
+class TestReadIndexSuccessPath:
+    def test_returns_200_when_index_html_exists(self):
+        from fastapi.responses import Response as _Response
+        fake_response = _Response(content="<html/>", media_type="text/html", status_code=200)
+        with patch("main.os.path.exists", return_value=True), \
+             patch("main.FileResponse", return_value=fake_response):
+            resp = client.get("/")
+        assert resp.status_code == 200
+
+    def test_response_is_file_response_when_index_html_exists(self):
+        from fastapi.responses import Response as _Response
+        fake_response = _Response(content="<html/>", media_type="text/html", status_code=200)
+        with patch("main.os.path.exists", return_value=True), \
+             patch("main.FileResponse", return_value=fake_response):
+            resp = client.get("/")
+        # FileResponse serves file content; status must be 200 (not 404)
+        assert resp.status_code == 200
+        assert resp.status_code != 404
+
+    def test_os_path_exists_called_with_correct_path(self):
+        from fastapi.responses import Response as _Response
+        fake_response = _Response(content="<html/>", media_type="text/html", status_code=200)
+        with patch("main.os.path.exists", return_value=True) as mock_exists, \
+             patch("main.FileResponse", return_value=fake_response):
+            client.get("/")
+        mock_exists.assert_called_with("templates/index.html")
+
