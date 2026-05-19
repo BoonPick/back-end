@@ -8,6 +8,7 @@ sys.modules.setdefault('pdfplumber', MagicMock())
 
 import pytest
 from fastapi.testclient import TestClient
+from fastapi.responses import HTMLResponse
 from datetime import datetime
 
 import main
@@ -1009,5 +1010,36 @@ class TestTriggerNotificationBatch:
             resp = client.post("/api/admin/notify")
         body = resp.json()
         assert list(body.keys()) == ["emails_sent"]
+
+
+# ── auto-generated: read_index ──
+class TestReadIndexSuccess:
+    """Cover main.py line 840: ``return FileResponse("templates/index.html")``.
+
+    Mocks os.path.exists to return True so the early-return 404 branch is
+    skipped and line 840 is executed.  The FileResponse itself is also mocked
+    so no real filesystem access is needed.
+    """
+
+    def test_returns_200_when_index_html_exists(self):
+        """When templates/index.html exists, read_index() returns FileResponse (200)."""
+        with patch("main.os.path.exists", return_value=True), \
+             patch("main.FileResponse", return_value=HTMLResponse(content="<html/>", status_code=200)):
+            resp = client.get("/")
+        assert resp.status_code == 200
+
+    def test_file_response_called_with_correct_path(self):
+        """Verify FileResponse is constructed with 'templates/index.html'."""
+        with patch("main.os.path.exists", return_value=True), \
+             patch("main.FileResponse", return_value=HTMLResponse(content="<html/>", status_code=200)) as mock_fr:
+            resp = client.get("/")
+        mock_fr.assert_called_once_with("templates/index.html")
+
+    def test_does_not_return_404_when_file_exists(self):
+        """When os.path.exists returns True, the 404 early-return is NOT taken."""
+        with patch("main.os.path.exists", return_value=True), \
+             patch("main.FileResponse", return_value=HTMLResponse(content="<html/>", status_code=200)):
+            resp = client.get("/")
+        assert resp.status_code != 404
 
 

@@ -709,3 +709,126 @@ class TestMainFunctionDirect:
         cst.main()
 
         assert called == [True]
+
+
+# ── auto-generated: main ──
+class TestMainRealBody:
+    """Invoke the REAL cst.main() body (lines 85-103) with all I/O mocked
+    so that the previously uncovered lines 91, 92, 94, 95, and 101 are hit."""
+
+    def _patch_path_resolution(self, mocker, main_py_exists, test_py_exists):
+        """Return (mock_main_py, mock_test_py) with .exists() pre-configured.
+
+        We patch cst.Path so that when main() calls
+            Path(__file__).resolve().parent.parent
+        it gets a MagicMock whose ``/`` operator yields controlled fake paths.
+        """
+        mock_main_py = mocker.MagicMock(name="main_py")
+        mock_main_py.exists.return_value = main_py_exists
+
+        mock_test_py = mocker.MagicMock(name="test_py")
+        mock_test_py.exists.return_value = test_py_exists
+
+        # The ``/`` operator builds sub-paths from base.
+        # base / "main.py"             → mock_main_py
+        # base / "tests"               → intermediate
+        # intermediate / "test_main.py" → mock_test_py
+        mock_tests_dir = mocker.MagicMock(name="tests_dir")
+        mock_tests_dir.__truediv__ = mocker.MagicMock(return_value=mock_test_py)
+
+        mock_base = mocker.MagicMock(name="base")
+
+        def _base_div(key):
+            if key == "main.py":
+                return mock_main_py
+            if key == "tests":
+                return mock_tests_dir
+            return mocker.MagicMock()
+
+        mock_base.__truediv__ = mocker.MagicMock(side_effect=_base_div)
+
+        # Path(__file__) chain: Path(x).resolve().parent.parent == mock_base
+        mock_path_instance = mocker.MagicMock(name="path_instance")
+        mock_path_instance.resolve.return_value.parent.parent = mock_base
+
+        mock_path_cls = mocker.patch("cleanup_stale_tests.Path")
+        mock_path_cls.return_value = mock_path_instance
+
+        return mock_main_py, mock_test_py
+
+    # ------------------------------------------------------------------
+    # Lines 91-92: main_py does not exist → print ERROR + sys.exit(1)
+    # ------------------------------------------------------------------
+
+    def test_real_body_main_py_missing_sysexit_1(self, mocker):
+        """Real main() body: main_py absent → sys.exit(1) on line 92."""
+        self._patch_path_resolution(mocker, main_py_exists=False, test_py_exists=False)
+        mock_exit = mocker.patch("sys.exit", side_effect=SystemExit)
+        mocker.patch("builtins.print")
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        mock_exit.assert_called_once_with(1)
+
+    def test_real_body_main_py_missing_prints_error_to_stderr(self, mocker):
+        """Real main() body: main_py absent → print(..., file=sys.stderr) on line 91."""
+        self._patch_path_resolution(mocker, main_py_exists=False, test_py_exists=False)
+        mocker.patch("sys.exit", side_effect=SystemExit)
+        mock_print = mocker.patch("builtins.print")
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        # First print call must contain "ERROR" and go to stderr
+        first_call = mock_print.call_args_list[0]
+        assert "ERROR" in first_call[0][0]
+        assert first_call[1].get("file") is sys.stderr
+
+    # ------------------------------------------------------------------
+    # Lines 94-95: main_py exists, test_py absent → print SKIP + sys.exit(0)
+    # ------------------------------------------------------------------
+
+    def test_real_body_test_py_missing_sysexit_0(self, mocker):
+        """Real main() body: test_py absent → sys.exit(0) on line 95."""
+        self._patch_path_resolution(mocker, main_py_exists=True, test_py_exists=False)
+        mock_exit = mocker.patch("sys.exit", side_effect=SystemExit)
+        mocker.patch("builtins.print")
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        mock_exit.assert_called_once_with(0)
+
+    def test_real_body_test_py_missing_prints_skip(self, mocker):
+        """Real main() body: test_py absent → SKIP message printed on line 94."""
+        self._patch_path_resolution(mocker, main_py_exists=True, test_py_exists=False)
+        mocker.patch("sys.exit", side_effect=SystemExit)
+        mock_print = mocker.patch("builtins.print")
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        first_call = mock_print.call_args_list[0]
+        assert "SKIP" in first_call[0][0]
+
+    # ------------------------------------------------------------------
+    # Line 101: both files exist, cleanup removes blocks → print "Removed …"
+    # ------------------------------------------------------------------
+
+    def test_real_body_removed_blocks_prints_stale_message(self, mocker):
+        """Real main() body: cleanup returns names → line 101 printed."""
+        mock_main_py, mock_test_py = self._patch_path_resolution(
+            mocker, main_py_exists=True, test_py_exists=True
+        )
+        mocker.patch("cleanup_stale_tests.get_main_functions", return_value={"live_fn"})
+        mocker.patch(
+            "cleanup_stale_tests.cleanup_stale_tests", return_value=["stale_fn"]
+        )
+        mock_print = mocker.patch("builtins.print")
+
+        cst.main()
+
+        printed_msgs = [call[0][0] for call in mock_print.call_args_list]
+        assert any("Removed stale test blocks:" in m for m in printed_msgs)
+        assert any("stale_fn" in m for m in printed_msgs)
