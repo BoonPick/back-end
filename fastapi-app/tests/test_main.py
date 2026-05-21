@@ -982,6 +982,48 @@ class TestReadIndex:
         assert resp.status_code == 405
 
 
+# ── auto-generated: read_index ──
+class TestReadIndex404Branch:
+    """Tests that specifically exercise the early-return 404 branch in
+    read_index() (main.py line 838-839):
+
+        if not os.path.exists('templates/index.html'):
+            return Response(status_code=404)
+
+    ``os.path.exists`` is mocked so the branch is always taken, regardless
+    of whether the file actually exists in the test environment.
+    """
+
+    def test_returns_404_when_index_html_missing(self, mocker):
+        """GET / must return HTTP 404 when templates/index.html does not exist."""
+        mocker.patch("main.os.path.exists", return_value=False)
+        resp = client.get("/")
+        assert resp.status_code == 404
+
+    def test_os_path_exists_called_with_correct_path(self, mocker):
+        """read_index() must check for exactly 'templates/index.html'."""
+        mock_exists = mocker.patch("main.os.path.exists", return_value=False)
+        client.get("/")
+        mock_exists.assert_called_once_with("templates/index.html")
+
+    def test_returns_file_response_when_index_html_present(self, mocker):
+        """GET / returns 200 (FileResponse) when os.path.exists returns True."""
+        mocker.patch("main.os.path.exists", return_value=True)
+        # FileResponse itself needs the file on disk; mock it to avoid that.
+        mocker.patch("main.FileResponse", return_value=MagicMock(status_code=200))
+        resp = client.get("/")
+        # As long as we didn't hit the 404 branch the response must not be 404.
+        assert resp.status_code != 404
+
+    def test_404_response_has_no_body(self, mocker):
+        """The 404 early return is a bare Response with no body."""
+        mocker.patch("main.os.path.exists", return_value=False)
+        resp = client.get("/")
+        assert resp.status_code == 404
+        # The early-return Response has an empty body.
+        assert resp.content == b""
+
+
 # ── auto-generated: trigger_notification_batch ──
 class TestTriggerNotificationBatch:
     def test_returns_emails_sent_count(self):
