@@ -877,6 +877,51 @@ class TestNotifyNow:
         assert resp.json()["items_sent"] == 0
 
 
+# ── auto-generated: read_index ──
+class TestReadIndex:
+    """Tests for the GET / endpoint (read_index) covering the missing branch
+    where templates/index.html does NOT exist (main.py line 839)."""
+
+    def test_returns_404_when_index_html_missing(self):
+        """When templates/index.html does not exist, read_index returns 404."""
+        with patch("main.os.path.exists", return_value=False):
+            resp = client.get("/")
+        assert resp.status_code == 404
+
+    def test_returns_404_only_for_missing_template(self):
+        """os.path.exists returns False specifically for the template path → 404."""
+        def exists_side_effect(path):
+            if "templates/index.html" in str(path):
+                return False
+            return True
+
+        with patch("main.os.path.exists", side_effect=exists_side_effect):
+            resp = client.get("/")
+        assert resp.status_code == 404
+
+    def test_returns_200_when_index_html_exists(self, tmp_path):
+        """When templates/index.html exists, read_index returns FileResponse (200)."""
+        templates_dir = tmp_path / "templates"
+        templates_dir.mkdir()
+        index_file = templates_dir / "index.html"
+        index_file.write_text("<html><body>Hello</body></html>", encoding="utf-8")
+
+        with patch("main.os.path.exists", return_value=True), \
+             patch("main.FileResponse") as mock_file_response:
+            mock_file_response.return_value = mock_file_response
+            resp = client.get("/")
+        # FileResponse is called (not 404)
+        mock_file_response.assert_called_once_with("templates/index.html")
+
+    def test_404_response_has_no_body_content(self):
+        """The 404 response from the missing-template branch has no body."""
+        with patch("main.os.path.exists", return_value=False):
+            resp = client.get("/")
+        assert resp.status_code == 404
+        # FastAPI Response(status_code=404) has no content body
+        assert resp.content == b""
+
+
 # ── auto-generated: upsert_notification_settings ──
 class TestUpsertNotificationSettings:
     def _valid_payload(self, **overrides):
@@ -1009,5 +1054,55 @@ class TestTriggerNotificationBatch:
             resp = client.post("/api/admin/notify")
         body = resp.json()
         assert list(body.keys()) == ["emails_sent"]
+
+
+# ── auto-generated: read_index ──
+class TestReadIndexMissingTemplate:
+    """Tests for the GET / endpoint (``read_index``) covering line 839 —
+    the branch where ``templates/index.html`` does NOT exist and the handler
+    returns ``Response(status_code=404)``."""
+
+    def test_returns_404_when_template_absent(self):
+        """os.path.exists returns False → read_index must return HTTP 404."""
+        with patch("main.os.path.exists", return_value=False):
+            resp = client.get("/")
+        assert resp.status_code == 404
+
+    def test_404_response_body_is_empty(self):
+        """The 404 from the missing-template branch has no response body."""
+        with patch("main.os.path.exists", return_value=False):
+            resp = client.get("/")
+        assert resp.status_code == 404
+        assert resp.content == b""
+
+    def test_exists_called_with_template_path(self):
+        """os.path.exists is called with the expected template path string."""
+        calls = []
+
+        def recording_exists(path):
+            calls.append(path)
+            return False  # always absent → 404
+
+        with patch("main.os.path.exists", side_effect=recording_exists):
+            resp = client.get("/")
+
+        assert resp.status_code == 404
+        assert any("templates/index.html" in str(p) for p in calls)
+
+    def test_file_response_not_called_when_template_absent(self):
+        """FileResponse must not be invoked when the template file is missing."""
+        with patch("main.os.path.exists", return_value=False), \
+             patch("main.FileResponse") as mock_fr:
+            resp = client.get("/")
+        assert resp.status_code == 404
+        mock_fr.assert_not_called()
+
+    def test_returns_file_response_when_template_present(self):
+        """When os.path.exists returns True, FileResponse is returned (not 404)."""
+        with patch("main.os.path.exists", return_value=True), \
+             patch("main.FileResponse") as mock_fr:
+            mock_fr.return_value = mock_fr  # make it act like a response
+            client.get("/")
+        mock_fr.assert_called_once_with("templates/index.html")
 
 

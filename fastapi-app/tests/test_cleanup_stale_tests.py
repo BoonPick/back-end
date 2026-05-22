@@ -709,3 +709,158 @@ class TestMainFunctionDirect:
         cst.main()
 
         assert called == [True]
+
+
+# ── auto-generated: main ──
+class TestMainCoverageBranches:
+    """Directly exercises the real cst.main() by monkeypatching Path inside the
+    cleanup_stale_tests module so that the hardcoded base-dir resolution points
+    to a controlled tmp_path.  Targets the specific missing lines:
+      91-92  – main_py missing   → ERROR stderr + sys.exit(1)
+      94-95  – test_py missing   → SKIP stdout  + sys.exit(0)
+      101    – removed non-empty → print removed names
+    """
+
+    def _redirect_base(self, monkeypatch, base_dir: Path):
+        """Patch cst.Path so Path(__file__).resolve().parent.parent == base_dir."""
+        original_Path = cst.Path
+
+        class _FakeFirstParent:
+            @property
+            def parent(self_inner):
+                return base_dir
+
+        class _FakeResolved:
+            @property
+            def parent(self_inner):
+                return _FakeFirstParent()
+
+        class _FakePath:
+            def __init__(self, arg=None):
+                self._real = original_Path(arg) if arg is not None else original_Path()
+
+            def resolve(self):
+                # Only intercept when called with the script's __file__ path
+                if str(self._real) == str(original_Path(cst.__file__)):
+                    return _FakeResolved()
+                return self._real.resolve()
+
+            # Forward all other attribute access to the real Path object so that
+            # the / operator and .exists() etc. work on derived sub-paths.
+            def __truediv__(self, other):
+                return original_Path(self._real) / other
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+        monkeypatch.setattr(cst, "Path", _FakePath)
+
+    # ------------------------------------------------------------------
+    # Lines 91-92: main_py absent → sys.exit(1)
+    # ------------------------------------------------------------------
+
+    def test_branch_main_py_missing_exits_1(self, tmp_path, monkeypatch, capsys):
+        """Line 91-92: main_py doesn't exist → sys.exit(1)."""
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        # main.py intentionally absent
+
+        self._redirect_base(monkeypatch, tmp_path)
+
+        with pytest.raises(SystemExit) as exc:
+            cst.main()
+        assert exc.value.code == 1
+
+    def test_branch_main_py_missing_stderr_has_error(self, tmp_path, monkeypatch, capsys):
+        """Line 91: ERROR printed to stderr when main_py is missing."""
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+
+        self._redirect_base(monkeypatch, tmp_path)
+
+        with pytest.raises(SystemExit):
+            cst.main()
+        captured = capsys.readouterr()
+        assert "ERROR" in captured.err
+
+    # ------------------------------------------------------------------
+    # Lines 94-95: main_py present, test_py absent → sys.exit(0)
+    # ------------------------------------------------------------------
+
+    def test_branch_test_py_missing_exits_0(self, tmp_path, monkeypatch, capsys):
+        """Lines 94-95: test_py doesn't exist → sys.exit(0)."""
+        (tmp_path / "main.py").write_text("def hello(): pass\n", encoding="utf-8")
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        # tests/test_main.py intentionally absent
+
+        self._redirect_base(monkeypatch, tmp_path)
+
+        with pytest.raises(SystemExit) as exc:
+            cst.main()
+        assert exc.value.code == 0
+
+    def test_branch_test_py_missing_stdout_has_skip(self, tmp_path, monkeypatch, capsys):
+        """Line 94: SKIP message printed when test_py is missing."""
+        import io
+        from contextlib import redirect_stdout
+
+        (tmp_path / "main.py").write_text("def hello(): pass\n", encoding="utf-8")
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+
+        self._redirect_base(monkeypatch, tmp_path)
+
+        buf = io.StringIO()
+        with pytest.raises(SystemExit):
+            with redirect_stdout(buf):
+                cst.main()
+        assert "SKIP" in buf.getvalue()
+
+    # ------------------------------------------------------------------
+    # Line 101: removed list non-empty → print stale names
+    # ------------------------------------------------------------------
+
+    def test_branch_removed_prints_names(self, tmp_path, monkeypatch, capsys):
+        """Line 101: stale block names printed when cleanup returns non-empty list."""
+        import io
+        from contextlib import redirect_stdout
+
+        (tmp_path / "main.py").write_text("def live_func(): pass\n", encoding="utf-8")
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        (tests_dir / "test_main.py").write_text(
+            "# ── auto-generated: stale_func ──\n"
+            "class TestStaleFunc:\n"
+            "    def test_stale(self):\n"
+            "        pass\n",
+            encoding="utf-8",
+        )
+
+        self._redirect_base(monkeypatch, tmp_path)
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cst.main()
+        output = buf.getvalue()
+        assert "Removed stale test blocks:" in output
+        assert "stale_func" in output
+
+    def test_branch_no_removal_prints_no_stale(self, tmp_path, monkeypatch, capsys):
+        """Line 101 else-branch: 'No stale test blocks found.' when list is empty."""
+        import io
+        from contextlib import redirect_stdout
+
+        (tmp_path / "main.py").write_text("def active_func(): pass\n", encoding="utf-8")
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        (tests_dir / "test_main.py").write_text(
+            "# ── auto-generated: active_func ──\n"
+            "class TestActiveFunc:\n"
+            "    def test_active(self):\n"
+            "        pass\n",
+            encoding="utf-8",
+        )
+
+        self._redirect_base(monkeypatch, tmp_path)
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cst.main()
+        assert "No stale test blocks found." in buf.getvalue()
