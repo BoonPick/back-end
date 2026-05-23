@@ -982,6 +982,30 @@ class TestReadIndex:
         assert resp.status_code == 405
 
 
+# ── auto-generated: read_index ──
+class TestReadIndexHappyPath:
+    def test_returns_200_when_template_exists(self):
+        with patch("main.os.path.exists", return_value=True), \
+             patch("main.FileResponse") as mock_file_response:
+            mock_file_response.return_value = mock_file_response
+            resp = client.get("/")
+        assert resp.status_code == 200
+
+    def test_file_response_called_with_correct_path(self):
+        with patch("main.os.path.exists", return_value=True) as mock_exists, \
+             patch("main.FileResponse") as mock_file_response:
+            mock_file_response.return_value.__class__ = type(mock_file_response.return_value)
+            client.get("/")
+        mock_exists.assert_called_once_with("templates/index.html")
+        mock_file_response.assert_called_once_with("templates/index.html")
+
+    def test_does_not_return_404_when_file_exists(self):
+        with patch("main.os.path.exists", return_value=True), \
+             patch("main.FileResponse") as mock_file_response:
+            resp = client.get("/")
+        assert resp.status_code != 404
+
+
 # ── auto-generated: trigger_notification_batch ──
 class TestTriggerNotificationBatch:
     def test_returns_emails_sent_count(self):

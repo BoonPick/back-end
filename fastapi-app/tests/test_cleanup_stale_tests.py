@@ -709,3 +709,337 @@ class TestMainFunctionDirect:
         cst.main()
 
         assert called == [True]
+
+
+# ── auto-generated: main ──
+class TestRealMainBranches:
+    """Exercise the REAL main() body (lines 90-103) by patching cst.Path so
+    that Path(__file__).resolve().parent.parent points to a controlled tmp dir.
+
+    This covers the previously uncovered lines:
+      91-92  – sys.exit(1) when main.py is not found
+      94-95  – sys.exit(0) when test_main.py is not found
+      101    – print("Removed stale test blocks: ...") when blocks are removed
+    """
+
+    def _make_layout(self, tmp_path, *, create_main_py=False, create_test_py=False,
+                     main_py_content="def hello(): pass\n",
+                     test_py_content="def test_x(): pass\n"):
+        """Create the directory structure under tmp_path and return (main_py, test_py)."""
+        (tmp_path / "scripts").mkdir(parents=True, exist_ok=True)
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        main_py = tmp_path / "main.py"
+        test_py = tests_dir / "test_main.py"
+        if create_main_py:
+            main_py.write_text(main_py_content, encoding="utf-8")
+        if create_test_py:
+            test_py.write_text(test_py_content, encoding="utf-8")
+        return main_py, test_py
+
+    def _patch_path_base(self, mocker, tmp_path):
+        """Patch cst.Path so that the chain
+        Path(__file__).resolve().parent.parent evaluates to tmp_path.
+
+        Strategy: wrap cst.Path so that when called with the script's own
+        __file__ string the returned object resolves to a fake path rooted at
+        tmp_path/scripts/cleanup_stale_tests.py, making .parent.parent == tmp_path.
+        """
+        real_Path = cst.Path
+        script_real = real_Path(cst.__file__).resolve()
+        fake_script = tmp_path / "scripts" / "cleanup_stale_tests.py"
+        # Ensure the fake script exists so Path operations on it don't fail.
+        fake_script.parent.mkdir(parents=True, exist_ok=True)
+        fake_script.touch()
+
+        original_Path_call = cst.Path
+
+        def patched_Path(*args):
+            obj = original_Path_call(*args)
+            # Only intercept the specific call Path(__file__) inside main()
+            if args and real_Path(*args).resolve() == script_real:
+                return original_Path_call(fake_script)
+            return obj
+
+        mocker.patch("cleanup_stale_tests.Path", side_effect=patched_Path)
+
+    # ------------------------------------------------------------------
+    # Lines 91-92: main.py does NOT exist → sys.exit(1)
+    # ------------------------------------------------------------------
+
+    def test_real_main_exits_1_when_main_py_missing(self, tmp_path, mocker, capsys):
+        """Calling the REAL main() with no main.py must sys.exit(1) (lines 91-92)."""
+        self._make_layout(tmp_path, create_main_py=False, create_test_py=False)
+        self._patch_path_base(mocker, tmp_path)
+
+        with pytest.raises(SystemExit) as exc_info:
+            cst.main()
+
+        assert exc_info.value.code == 1
+
+    def test_real_main_prints_error_to_stderr_when_main_py_missing(
+        self, tmp_path, mocker, capsys
+    ):
+        """ERROR message goes to stderr on lines 91-92 of the real main()."""
+        self._make_layout(tmp_path, create_main_py=False, create_test_py=False)
+        self._patch_path_base(mocker, tmp_path)
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        captured = capsys.readouterr()
+        assert "ERROR" in captured.err
+        assert "main.py" in captured.err
+
+    # ------------------------------------------------------------------
+    # Lines 94-95: main.py present, test_main.py absent → sys.exit(0)
+    # ------------------------------------------------------------------
+
+    def test_real_main_exits_0_when_test_py_missing(self, tmp_path, mocker):
+        """Calling the REAL main() with main.py present but no test_main.py
+        must sys.exit(0) (lines 94-95)."""
+        self._make_layout(tmp_path, create_main_py=True, create_test_py=False)
+        self._patch_path_base(mocker, tmp_path)
+
+        with pytest.raises(SystemExit) as exc_info:
+            cst.main()
+
+        assert exc_info.value.code == 0
+
+    def test_real_main_prints_skip_when_test_py_missing(self, tmp_path, mocker):
+        """SKIP message is printed to stdout on lines 94-95 of the real main()."""
+        import io
+        from contextlib import redirect_stdout
+
+        self._make_layout(tmp_path, create_main_py=True, create_test_py=False)
+        self._patch_path_base(mocker, tmp_path)
+
+        buf = io.StringIO()
+        with pytest.raises(SystemExit):
+            with redirect_stdout(buf):
+                cst.main()
+
+        assert "SKIP" in buf.getvalue()
+
+    # ------------------------------------------------------------------
+    # Line 101: both files present, stale block exists → removed names printed
+    # ------------------------------------------------------------------
+
+    def test_real_main_prints_removed_names_line_101(self, tmp_path, mocker):
+        """Line 101 is hit: the REAL main() prints removed stale block names."""
+        import io
+        from contextlib import redirect_stdout
+
+        stale_content = (
+            "# ── auto-generated: obsolete_func ──\n"
+            "class TestObsoleteFunc:\n"
+            "    def test_it(self):\n"
+            "        pass\n"
+        )
+        self._make_layout(
+            tmp_path,
+            create_main_py=True,
+            create_test_py=True,
+            main_py_content="def live_func(): pass\n",
+            test_py_content=stale_content,
+        )
+        self._patch_path_base(mocker, tmp_path)
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cst.main()
+
+        output = buf.getvalue()
+        assert "Removed stale test blocks:" in output
+        assert "obsolete_func" in output
+
+    def test_real_main_file_rewritten_after_stale_removal_line_101(
+        self, tmp_path, mocker
+    ):
+        """After the REAL main() runs with stale blocks, the file on disk no
+        longer contains the removed class (line 101 path confirms write happened)."""
+        import io
+        from contextlib import redirect_stdout
+
+        stale_content = (
+            "# ── auto-generated: vanished_func ──\n"
+            "class TestVanishedFunc:\n"
+            "    def test_v(self):\n"
+            "        pass\n"
+        )
+        _, test_py = self._make_layout(
+            tmp_path,
+            create_main_py=True,
+            create_test_py=True,
+            main_py_content="def live_func(): pass\n",
+            test_py_content=stale_content,
+        )
+        self._patch_path_base(mocker, tmp_path)
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cst.main()
+
+        assert "TestVanishedFunc" not in test_py.read_text(encoding="utf-8")
+
+
+# ── auto-generated: main ──
+class TestMainCoverage:
+    """Cover the REAL main() lines 91-92, 94-95, and 101 by monkeypatching
+    cst.Path so that Path(__file__).resolve().parent.parent redirects to a
+    tmp directory we fully control.  Each test calls the actual main() body
+    without any intermediate helper.
+    """
+
+    def _install_path_shim(self, monkeypatch, tmp_path):
+        """Replace cst.Path with a wrapper that redirects Path(cst.__file__)
+        to tmp_path/scripts/cleanup_stale_tests.py so that
+        Path(__file__).resolve().parent.parent == tmp_path inside main().
+
+        All other Path() calls are forwarded to the real pathlib.Path.
+        """
+        import pathlib
+
+        real_script = str(pathlib.Path(cst.__file__).resolve())
+        fake_script = tmp_path / "scripts" / "cleanup_stale_tests.py"
+        fake_script.parent.mkdir(parents=True, exist_ok=True)
+        fake_script.touch()
+
+        _RealPath = pathlib.Path
+
+        def _shim(*args, **kwargs):
+            # Detect the specific Path(__file__) call inside main()
+            if args and str(_RealPath(*args)) == real_script:
+                return _RealPath(str(fake_script))
+            return _RealPath(*args, **kwargs)
+
+        monkeypatch.setattr(cst, "Path", _shim)
+
+    # ------------------------------------------------------------------ #
+    # Lines 91-92: main.py missing -> sys.exit(1) + ERROR to stderr       #
+    # ------------------------------------------------------------------ #
+
+    def test_main_exits_1_when_main_py_absent(self, tmp_path, monkeypatch, capsys):
+        """Call the REAL main(); no main.py -> sys.exit(1) (lines 91-92)."""
+        (tmp_path / "scripts").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        # main.py is intentionally absent
+        self._install_path_shim(monkeypatch, tmp_path)
+
+        with pytest.raises(SystemExit) as exc_info:
+            cst.main()
+
+        assert exc_info.value.code == 1
+
+    def test_main_prints_error_to_stderr_when_main_py_absent(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """ERROR message appears on stderr when main.py is absent (lines 91-92)."""
+        (tmp_path / "scripts").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        self._install_path_shim(monkeypatch, tmp_path)
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        captured = capsys.readouterr()
+        assert "ERROR" in captured.err
+        assert "main.py" in captured.err
+
+    # ------------------------------------------------------------------ #
+    # Lines 94-95: main.py exists, test_main.py absent -> sys.exit(0)     #
+    # ------------------------------------------------------------------ #
+
+    def test_main_exits_0_when_test_py_absent(self, tmp_path, monkeypatch, capsys):
+        """Call the REAL main(); main.py present, test_main.py absent -> sys.exit(0)
+        (lines 94-95)."""
+        (tmp_path / "scripts").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "main.py").write_text("def hello(): pass\n", encoding="utf-8")
+        # test_main.py intentionally absent
+        self._install_path_shim(monkeypatch, tmp_path)
+
+        with pytest.raises(SystemExit) as exc_info:
+            cst.main()
+
+        assert exc_info.value.code == 0
+
+    def test_main_prints_skip_to_stdout_when_test_py_absent(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """SKIP message appears on stdout when test_main.py is absent (lines 94-95)."""
+        import io
+        from contextlib import redirect_stdout
+
+        (tmp_path / "scripts").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "main.py").write_text("def hello(): pass\n", encoding="utf-8")
+        self._install_path_shim(monkeypatch, tmp_path)
+
+        buf = io.StringIO()
+        with pytest.raises(SystemExit):
+            with redirect_stdout(buf):
+                cst.main()
+
+        assert "SKIP" in buf.getvalue()
+
+    # ------------------------------------------------------------------ #
+    # Line 101: stale blocks exist -> removed names printed                #
+    # ------------------------------------------------------------------ #
+
+    def test_main_prints_removed_names_when_stale_blocks_exist(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """Stale block in test_main.py -> REAL main() prints removed name (line 101)."""
+        import io
+        from contextlib import redirect_stdout
+
+        (tmp_path / "scripts").mkdir(parents=True, exist_ok=True)
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "main.py").write_text("def live_fn(): pass\n", encoding="utf-8")
+        (tests_dir / "test_main.py").write_text(
+            "# ── auto-generated: dead_fn ──\n"
+            "class TestDeadFn:\n"
+            "    def test_it(self):\n"
+            "        pass\n",
+            encoding="utf-8",
+        )
+        self._install_path_shim(monkeypatch, tmp_path)
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cst.main()
+
+        output = buf.getvalue()
+        assert "Removed stale test blocks:" in output
+        assert "dead_fn" in output
+
+    def test_main_stale_block_removed_from_disk_line_101(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """After the REAL main() removes a stale block, the file on disk is updated
+        (confirms both line 101 print and the write in cleanup_stale_tests)."""
+        import io
+        from contextlib import redirect_stdout
+
+        (tmp_path / "scripts").mkdir(parents=True, exist_ok=True)
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "main.py").write_text("def keeper(): pass\n", encoding="utf-8")
+        test_py = tests_dir / "test_main.py"
+        test_py.write_text(
+            "# ── auto-generated: gone_fn ──\n"
+            "class TestGoneFn:\n"
+            "    def test_g(self):\n"
+            "        pass\n",
+            encoding="utf-8",
+        )
+        self._install_path_shim(monkeypatch, tmp_path)
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cst.main()
+
+        assert "TestGoneFn" not in test_py.read_text(encoding="utf-8")
+        assert "gone_fn" in buf.getvalue()
