@@ -709,3 +709,72 @@ class TestMainFunctionDirect:
         cst.main()
 
         assert called == [True]
+
+
+# ── auto-generated: main ──
+class TestMainFunction:
+    """Tests for the main() entry point of cleanup_stale_tests.py."""
+
+    def test_main_exits_with_error_when_main_py_missing(self, tmp_path, mocker, capsys):
+        """main() should print error to stderr and call sys.exit(1) when main.py not found."""
+        # Patch Path.resolve to point to tmp_path so that base / "main.py" doesn't exist
+        mocker.patch.object(
+            cst.Path,
+            "resolve",
+            return_value=tmp_path / "scripts" / "cleanup_stale_tests.py",
+        )
+        (tmp_path / "scripts").mkdir(parents=True, exist_ok=True)
+        with pytest.raises(SystemExit) as exc_info:
+            cst.main()
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "ERROR" in captured.err
+        assert "not found" in captured.err
+
+    def test_main_exits_zero_when_test_py_missing(self, tmp_path, mocker, capsys):
+        """main() should print SKIP and call sys.exit(0) when test_main.py not found."""
+        scripts_dir = tmp_path / "scripts"
+        scripts_dir.mkdir(parents=True, exist_ok=True)
+        # Create main.py so existence check passes
+        (tmp_path / "main.py").write_text("def placeholder(): pass\n", encoding="utf-8")
+        # tests/ dir exists but test_main.py does not
+        (tmp_path / "tests").mkdir(exist_ok=True)
+
+        mocker.patch.object(
+            cst.Path,
+            "resolve",
+            return_value=scripts_dir / "cleanup_stale_tests.py",
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            cst.main()
+        assert exc_info.value.code == 0
+        captured = capsys.readouterr()
+        assert "SKIP" in captured.out
+
+    def test_main_prints_removed_when_stale_blocks_exist(self, tmp_path, mocker, capsys):
+        """main() should print removed block names when stale tests are cleaned up."""
+        scripts_dir = tmp_path / "scripts"
+        scripts_dir.mkdir(parents=True, exist_ok=True)
+        # main.py has one function: keep_me (stale_func no longer present)
+        main_py = tmp_path / "main.py"
+        main_py.write_text("def keep_me(): pass\n", encoding="utf-8")
+        # test_main.py has an auto-generated block for stale_func
+        test_py = tmp_path / "tests" / "test_main.py"
+        (tmp_path / "tests").mkdir(exist_ok=True)
+        test_py.write_text(
+            "# ── auto-generated: stale_func ──\n"
+            "class TestStaleFunc:\n"
+            "    def test_something(self):\n"
+            "        pass\n",
+            encoding="utf-8",
+        )
+
+        mocker.patch.object(
+            cst.Path,
+            "resolve",
+            return_value=scripts_dir / "cleanup_stale_tests.py",
+        )
+        cst.main()
+        captured = capsys.readouterr()
+        assert "stale_func" in captured.out
+        assert "Removed stale test blocks" in captured.out

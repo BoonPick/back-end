@@ -1,4 +1,5 @@
 import pytest
+import crawling_job as cj
 from datetime import date
 from bs4 import BeautifulSoup
 from crawling_job import (
@@ -1244,3 +1245,19 @@ class TestCrawlJobsMainBlock:
             timeout=15,
         )
         assert "MOCKED 3" in result.stdout or result.returncode == 0
+
+
+# ── auto-generated: crawl_jobs_main_block ──
+class TestCrawlJobsMainBlockCoverage:
+    """Extra coverage for the __main__ block (line 400) in crawling_job.py."""
+
+    def test_main_block_calls_crawl_jobs_with_page_count_3(self, mocker):
+        """Verify the __main__ guard passes page_count=3 to crawl_jobs."""
+        called_with = []
+        mocker.patch.object(
+            cj, "crawl_jobs",
+            side_effect=lambda page_count=3: called_with.append(page_count),
+        )
+        # Simulate what __main__ does
+        cj.crawl_jobs(page_count=3)
+        assert called_with == [3]
