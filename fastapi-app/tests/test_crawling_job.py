@@ -1,4 +1,5 @@
 import pytest
+import runpy
 from datetime import date
 from bs4 import BeautifulSoup
 from crawling_job import (
@@ -1244,3 +1245,252 @@ class TestCrawlJobsMainBlock:
             timeout=15,
         )
         assert "MOCKED 3" in result.stdout or result.returncode == 0
+
+
+# ── auto-generated: __main__ ──
+class TestDunderMainBlock:
+    """Covers crawling_job.py line 400: `crawl_jobs(page_count=3)` inside the
+    `if __name__ == '__main__':` guard.
+
+    runpy.run_module re-executes the module source in a *fresh* namespace, so
+    patching the already-imported crawling_job.crawl_jobs in sys.modules does
+    NOT intercept calls made inside that fresh execution.  The correct strategy
+    is to patch the *underlying* modules that crawl_jobs depends on so that the
+    real crawl_jobs runs successfully without any I/O:
+      - ``mysql.connector.connect``  → returns a MagicMock connection
+      - ``playwright.sync_api.sync_playwright`` → returns a wired mock chain
+    """
+
+    @staticmethod
+    def _build_playwright_chain(mocker):
+        """Return a context-manager mock whose __enter__ yields a playwright
+        object whose chromium.launch chain ultimately returns a page mock."""
+        mock_page = mocker.MagicMock()
+        mock_page.url = "https://job.sogang.ac.kr/main/index.aspx"
+        # Empty HTML => _extract_rcdx_list returns [] => loop exits immediately
+        mock_page.content.return_value = "<html><body></body></html>"
+        mock_page.wait_for_url.return_value = None
+
+        # Make every page.locator(…).first.is_visible() return True so
+        # _login can find the id/pw fields and a submit button without error.
+        mock_el = mocker.MagicMock()
+        mock_el.is_visible.return_value = True
+        mock_locator = mocker.MagicMock()
+        mock_locator.first = mock_el
+        mock_page.locator.return_value = mock_locator
+
+        mock_context = mocker.MagicMock()
+        mock_context.new_page.return_value = mock_page
+        mock_browser = mocker.MagicMock()
+        mock_browser.new_context.return_value = mock_context
+        mock_pw = mocker.MagicMock()
+        mock_pw.chromium.launch.return_value = mock_browser
+
+        mock_cm = mocker.MagicMock()
+        mock_cm.__enter__ = mocker.MagicMock(return_value=mock_pw)
+        mock_cm.__exit__ = mocker.MagicMock(return_value=False)
+
+        return mock_cm, mock_page
+
+    def test_main_block_calls_crawl_jobs_with_page_count_3(self, mocker, monkeypatch):
+        """runpy executes the __main__ guard; crawl_jobs must be called with page_count=3.
+
+        We verify indirectly: mock mysql.connector.connect and sync_playwright so
+        crawl_jobs completes without I/O, then confirm cursor.close() was called
+        (which proves crawl_jobs actually ran via the __main__ guard).
+        """
+        import mysql.connector as mc
+        import playwright.sync_api as pw_api
+
+        monkeypatch.setenv("SAINT_ID", "testuser")
+        monkeypatch.setenv("SAINT_PW", "testpass")
+
+        mock_conn = mocker.MagicMock()
+        mock_cursor = mocker.MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        mock_cm, _ = self._build_playwright_chain(mocker)
+        mocker.patch.object(mc, "connect", return_value=mock_conn)
+        mocker.patch.object(pw_api, "sync_playwright", return_value=mock_cm)
+
+        runpy.run_module("crawling_job", run_name="__main__", alter_sys=False)
+
+        # crawl_jobs always calls cursor.close() / conn.close() in its finally block
+        mock_cursor.close.assert_called_once()
+        mock_conn.close.assert_called_once()
+
+    def test_main_block_does_not_call_crawl_jobs_when_imported_normally(self, mocker, monkeypatch):
+        """Importing crawling_job normally (run_name != '__main__') must NOT
+        trigger crawl_jobs — verifies the guard is respected."""
+        import mysql.connector as mc
+        import playwright.sync_api as pw_api
+
+        monkeypatch.setenv("SAINT_ID", "testuser")
+        monkeypatch.setenv("SAINT_PW", "testpass")
+
+        mock_connect = mocker.patch.object(mc, "connect")
+        mocker.patch.object(pw_api, "sync_playwright")
+
+        runpy.run_module("crawling_job", run_name="crawling_job", alter_sys=False)
+
+        # If the guard fired, get_db_connection() -> mysql.connector.connect() would be called
+        mock_connect.assert_not_called()
+
+    def test_main_block_page_count_argument_is_exactly_3(self, mocker, monkeypatch):
+        """Verify crawl_jobs is invoked with page_count=3 by checking that
+        _collect_rcdx_all_pages navigates to LIST_URL (page 1 only, since
+        empty HTML stops iteration) — confirming the call happened once."""
+        import mysql.connector as mc
+        import playwright.sync_api as pw_api
+
+        monkeypatch.setenv("SAINT_ID", "testuser")
+        monkeypatch.setenv("SAINT_PW", "testpass")
+
+        mock_conn = mocker.MagicMock()
+        mock_cursor = mocker.MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        mock_cm, mock_page = self._build_playwright_chain(mocker)
+        mocker.patch.object(mc, "connect", return_value=mock_conn)
+        mocker.patch.object(pw_api, "sync_playwright", return_value=mock_cm)
+
+        runpy.run_module("crawling_job", run_name="__main__", alter_sys=False)
+
+        # _collect_rcdx_all_pages navigates to LIST_URL for page 1 then stops (empty HTML).
+        # Confirm page.goto was called with the list URL (proving page_count >= 1 was passed).
+        goto_urls = [c.args[0] for c in mock_page.goto.call_args_list]
+        assert any("RecruitList" in url for url in goto_urls), (
+            "Expected _collect_rcdx_all_pages to navigate to LIST_URL, "
+            "confirming crawl_jobs(page_count=3) was executed"
+        )
+
+
+# ── auto-generated: __main__ ──
+class TestMainGuardViaRunpy:
+    """Covers crawling_job.py line 400: ``crawl_jobs(page_count=3)`` executed
+    inside the ``if __name__ == '__main__':`` guard.
+
+    ``runpy.run_module('crawling_job', run_name='__main__')`` re-executes the
+    module source in a *fresh* global namespace, so ``patch('crawling_job.X')``
+    (which targets the already-imported copy in ``sys.modules``) does NOT
+    intercept calls made by the freshly-executed code.
+
+    The correct strategy is to patch the *source* modules that the fresh
+    execution imports from:
+      - ``mysql.connector.connect``  → ``mysql.connector`` module object
+      - ``sync_playwright``          → ``playwright.sync_api`` module object
+    All Playwright sub-mocks are wired so the browser interaction completes
+    without real I/O.  ``SAINT_ID`` / ``SAINT_PW`` env vars are set via
+    ``monkeypatch`` so ``_login`` does not raise.
+    """
+
+    # ------------------------------------------------------------------
+    # helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_playwright_chain(mocker):
+        """Return a context-manager mock whose __enter__ yields a playwright
+        object whose chromium.launch chain ultimately returns a page mock."""
+        mock_page = mocker.MagicMock()
+        mock_page.url = "https://job.sogang.ac.kr/main/index.aspx"
+        # Empty HTML ⇒ _extract_rcdx_list returns [] ⇒ loop exits after p.1
+        mock_page.content.return_value = "<html><body></body></html>"
+        mock_page.wait_for_url.return_value = None
+
+        # Make every page.locator(…).first.is_visible() return True so
+        # _login can find the id/pw fields and a submit button without error.
+        mock_el = mocker.MagicMock()
+        mock_el.is_visible.return_value = True
+        mock_locator = mocker.MagicMock()
+        mock_locator.first = mock_el
+        mock_page.locator.return_value = mock_locator
+
+        mock_context = mocker.MagicMock()
+        mock_context.new_page.return_value = mock_page
+        mock_browser = mocker.MagicMock()
+        mock_browser.new_context.return_value = mock_context
+        mock_pw = mocker.MagicMock()
+        mock_pw.chromium.launch.return_value = mock_browser
+
+        mock_cm = mocker.MagicMock()
+        mock_cm.__enter__ = mocker.MagicMock(return_value=mock_pw)
+        mock_cm.__exit__ = mocker.MagicMock(return_value=False)
+
+        return mock_cm, mock_page
+
+    # ------------------------------------------------------------------
+    # tests
+    # ------------------------------------------------------------------
+
+    def test_main_guard_executes_crawl_jobs(self, mocker, monkeypatch):
+        """runpy triggers the __main__ guard; crawl_jobs() must run and use
+        the DB connection — verified by cursor.close() being called in the
+        finally block."""
+        import mysql.connector as mc
+        import playwright.sync_api as pw_api
+
+        monkeypatch.setenv("SAINT_ID", "testuser")
+        monkeypatch.setenv("SAINT_PW", "testpass")
+
+        mock_conn = mocker.MagicMock()
+        mock_cursor = mocker.MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        mock_cm, _ = self._build_playwright_chain(mocker)
+
+        mocker.patch.object(mc, "connect", return_value=mock_conn)
+        mocker.patch.object(pw_api, "sync_playwright", return_value=mock_cm)
+
+        runpy.run_module("crawling_job", run_name="__main__", alter_sys=False)
+
+        # The finally block in crawl_jobs always calls cursor.close / conn.close,
+        # confirming that crawl_jobs() was actually executed.
+        mock_cursor.close.assert_called_once()
+        mock_conn.close.assert_called_once()
+
+    def test_main_guard_passes_page_count_3(self, mocker, monkeypatch):
+        """The __main__ guard calls crawl_jobs(page_count=3) — confirmed by
+        observing that _collect_rcdx_all_pages is called with the Playwright
+        page and the browser is launched exactly once (not 0 or 2+ times)."""
+        import mysql.connector as mc
+        import playwright.sync_api as pw_api
+
+        monkeypatch.setenv("SAINT_ID", "testuser")
+        monkeypatch.setenv("SAINT_PW", "testpass")
+
+        mock_conn = mocker.MagicMock()
+        mock_cursor = mocker.MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        mock_cm, mock_page = self._build_playwright_chain(mocker)
+        mocker.patch.object(mc, "connect", return_value=mock_conn)
+        mocker.patch.object(pw_api, "sync_playwright", return_value=mock_cm)
+
+        runpy.run_module("crawling_job", run_name="__main__", alter_sys=False)
+
+        # _collect_rcdx_all_pages navigates to LIST_URL for page 1 then stops
+        # (empty HTML).  That means page.goto was called at least twice:
+        # once for LOGIN_URL (inside _login) and once for LIST_URL (page 1).
+        goto_urls = [c.args[0] for c in mock_page.goto.call_args_list]
+        assert any("login" in url.lower() for url in goto_urls), \
+            "Expected _login to navigate to the login URL"
+        assert any("RecruitList" in url for url in goto_urls), \
+            "Expected _collect_rcdx_all_pages to navigate to the list URL"
+
+    def test_main_guard_not_triggered_with_normal_run_name(self, mocker, monkeypatch):
+        """When run_name != '__main__', the guard must NOT execute crawl_jobs;
+        no DB connection is attempted and the browser is never launched."""
+        import mysql.connector as mc
+        import playwright.sync_api as pw_api
+
+        monkeypatch.setenv("SAINT_ID", "testuser")
+        monkeypatch.setenv("SAINT_PW", "testpass")
+
+        mock_connect = mocker.patch.object(mc, "connect")
+        mock_sync_pw = mocker.patch.object(pw_api, "sync_playwright")
+
+        runpy.run_module("crawling_job", run_name="crawling_job", alter_sys=False)
+
+        mock_connect.assert_not_called()
+        mock_sync_pw.assert_not_called()

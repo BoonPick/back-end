@@ -709,3 +709,291 @@ class TestMainFunctionDirect:
         cst.main()
 
         assert called == [True]
+
+
+# ── auto-generated: main ──
+class TestMainRealFunction:
+    """Tests that call the *real* main() by patching ``cleanup_stale_tests.Path``
+    so that ``Path(__file__).resolve().parent.parent`` resolves to a controlled
+    tmp directory.  This directly exercises lines 91-92, 94-95, and 101."""
+
+    # ------------------------------------------------------------------
+    # Helper: build a Path-replacement that reroutes __file__ resolution
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _patch_path_cls(mocker, tmp_path):
+        """Patch ``cleanup_stale_tests.Path`` so the chain
+        ``Path(__file__).resolve().parent.parent`` returns *tmp_path*.
+
+        All other Path usages (``base / "main.py"``, ``base / "tests" / …``,
+        and ``path.exists()`` / ``path.read_text()`` / ``path.write_text()``)
+        fall through to the real ``pathlib.Path`` because we only intercept
+        the very first call made with ``__file__`` as the argument.
+        """
+        import pathlib
+
+        real_Path = pathlib.Path
+        target_file = str(real_Path(cst.__file__).resolve())
+
+        class _ControlledPath(real_Path):
+            """Subclass that overrides resolve() once to redirect parent.parent."""
+
+            def resolve(self, strict=False):
+                real_resolved = super().resolve(strict=strict)
+                # Only redirect when this Path wraps the script's __file__
+                if str(real_resolved) == target_file:
+                    # Return a fake resolved path whose parent.parent is tmp_path
+                    fake = real_Path(tmp_path / "scripts" / "cleanup_stale_tests.py")
+                    fake.parent.mkdir(parents=True, exist_ok=True)
+                    return fake
+                return real_resolved
+
+        mocker.patch("cleanup_stale_tests.Path", new=_ControlledPath)
+
+    # ------------------------------------------------------------------
+    # Line 91-92: main.py does NOT exist → print ERROR + sys.exit(1)
+    # ------------------------------------------------------------------
+
+    def test_real_main_line_91_92_sysexit_1(self, tmp_path, mocker, capsys):
+        """Real main(): main.py absent → sys.exit(1) (lines 91-92)."""
+        # Create tests/ dir but leave main.py absent
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        self._patch_path_cls(mocker, tmp_path)
+
+        with pytest.raises(SystemExit) as exc_info:
+            cst.main()
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "ERROR" in captured.err
+
+    def test_real_main_line_91_92_error_message_contains_path(self, tmp_path, mocker, capsys):
+        """Real main(): error message names the missing main.py path (lines 91-92)."""
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        self._patch_path_cls(mocker, tmp_path)
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        captured = capsys.readouterr()
+        assert "main.py" in captured.err
+
+    # ------------------------------------------------------------------
+    # Line 94-95: main.py exists, test_main.py does NOT → print SKIP + sys.exit(0)
+    # ------------------------------------------------------------------
+
+    def test_real_main_line_94_95_sysexit_0(self, tmp_path, mocker, capsys):
+        """Real main(): main.py present, test_main.py absent → sys.exit(0) (lines 94-95)."""
+        (tmp_path / "main.py").write_text("def hello(): pass\n", encoding="utf-8")
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        # test_main.py intentionally NOT created
+        self._patch_path_cls(mocker, tmp_path)
+
+        with pytest.raises(SystemExit) as exc_info:
+            cst.main()
+
+        assert exc_info.value.code == 0
+
+    def test_real_main_line_94_95_skip_message_printed(self, tmp_path, mocker, capsys):
+        """Real main(): SKIP message is printed to stdout (lines 94-95)."""
+        (tmp_path / "main.py").write_text("def hello(): pass\n", encoding="utf-8")
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        self._patch_path_cls(mocker, tmp_path)
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        captured = capsys.readouterr()
+        assert "SKIP" in captured.out
+        assert "test_main.py" in captured.out
+
+    # ------------------------------------------------------------------
+    # Line 101: removed is non-empty → print "Removed stale test blocks: …"
+    # ------------------------------------------------------------------
+
+    def test_real_main_line_101_prints_removed_names(self, tmp_path, mocker, capsys):
+        """Real main(): stale blocks found → prints removal message (line 101)."""
+        (tmp_path / "main.py").write_text("def live_func(): pass\n", encoding="utf-8")
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        (tests_dir / "test_main.py").write_text(
+            "# ── auto-generated: stale_func ──\n"
+            "class TestStaleFunc:\n"
+            "    def test_it(self):\n"
+            "        pass\n",
+            encoding="utf-8",
+        )
+        self._patch_path_cls(mocker, tmp_path)
+
+        cst.main()
+
+        captured = capsys.readouterr()
+        assert "Removed stale test blocks:" in captured.out
+        assert "stale_func" in captured.out
+
+    def test_real_main_line_101_removed_blocks_written_to_file(self, tmp_path, mocker):
+        """Real main(): removed stale block is actually erased from the file (line 101)."""
+        (tmp_path / "main.py").write_text("def other(): pass\n", encoding="utf-8")
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        test_py = tests_dir / "test_main.py"
+        test_py.write_text(
+            "# ── auto-generated: gone_func ──\n"
+            "class TestGoneFunc:\n"
+            "    def test_gone(self):\n"
+            "        pass\n",
+            encoding="utf-8",
+        )
+        self._patch_path_cls(mocker, tmp_path)
+
+        cst.main()
+
+        assert "TestGoneFunc" not in test_py.read_text(encoding="utf-8")
+
+
+# ── auto-generated: main ──
+class TestMainRealFunctionFixed:
+    """Tests that call the *real* main() by patching ``cleanup_stale_tests.Path``
+    using a side_effect callable that intercepts only the ``__file__`` argument,
+    making ``Path(__file__).resolve().parent.parent`` resolve to a controlled
+    tmp directory.  This directly exercises lines 91-92, 94-95, and 101 on
+    Python 3.11 where subclassing Path is restricted."""
+
+    @staticmethod
+    def _make_path_patcher(mocker, tmp_path):
+        """Return a context manager that patches ``cleanup_stale_tests.Path``
+        so the chain ``Path(__file__).resolve().parent.parent`` → *tmp_path*
+        while all other Path calls delegate to the real ``pathlib.Path``."""
+        import pathlib
+
+        real_Path = pathlib.Path
+        # Capture the resolved __file__ string once so we can match it later.
+        target_file = str(real_Path(cst.__file__).resolve())
+
+        def fake_Path(*args, **kwargs):
+            if args and str(args[0]) == target_file:
+                m = mocker.MagicMock()
+                m.resolve.return_value.parent.parent = tmp_path
+                return m
+            return real_Path(*args, **kwargs)
+
+        return mocker.patch("cleanup_stale_tests.Path", side_effect=fake_Path)
+
+    # ------------------------------------------------------------------
+    # Lines 91-92: main.py does NOT exist → print ERROR to stderr + sys.exit(1)
+    # ------------------------------------------------------------------
+
+    def test_main_py_missing_exits_with_code_1(self, tmp_path, mocker, capsys):
+        """Real main() lines 91-92: absent main.py → sys.exit(1)."""
+        # Create tests/ dir but deliberately omit main.py
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        self._make_path_patcher(mocker, tmp_path)
+
+        with pytest.raises(SystemExit) as exc_info:
+            cst.main()
+
+        assert exc_info.value.code == 1
+
+    def test_main_py_missing_prints_error_to_stderr(self, tmp_path, mocker, capsys):
+        """Real main() lines 91-92: ERROR message is written to stderr."""
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        self._make_path_patcher(mocker, tmp_path)
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        captured = capsys.readouterr()
+        assert "ERROR" in captured.err
+        assert "main.py" in captured.err
+
+    # ------------------------------------------------------------------
+    # Lines 94-95: main.py present, test_main.py absent → print SKIP + sys.exit(0)
+    # ------------------------------------------------------------------
+
+    def test_test_py_missing_exits_with_code_0(self, tmp_path, mocker, capsys):
+        """Real main() lines 94-95: present main.py but absent test_main.py → sys.exit(0)."""
+        (tmp_path / "main.py").write_text("def hello(): pass\n", encoding="utf-8")
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        # test_main.py deliberately NOT created
+        self._make_path_patcher(mocker, tmp_path)
+
+        with pytest.raises(SystemExit) as exc_info:
+            cst.main()
+
+        assert exc_info.value.code == 0
+
+    def test_test_py_missing_prints_skip_to_stdout(self, tmp_path, mocker, capsys):
+        """Real main() lines 94-95: SKIP message printed to stdout."""
+        (tmp_path / "main.py").write_text("def hello(): pass\n", encoding="utf-8")
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        self._make_path_patcher(mocker, tmp_path)
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        captured = capsys.readouterr()
+        assert "SKIP" in captured.out
+        assert "test_main.py" in captured.out
+
+    # ------------------------------------------------------------------
+    # Line 101: removed is non-empty → print "Removed stale test blocks: …"
+    # ------------------------------------------------------------------
+
+    def test_stale_blocks_found_prints_removed_message(self, tmp_path, mocker, capsys):
+        """Real main() line 101: stale blocks cause removal message to be printed."""
+        (tmp_path / "main.py").write_text("def live_func(): pass\n", encoding="utf-8")
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        (tests_dir / "test_main.py").write_text(
+            "# ── auto-generated: stale_func ──\n"
+            "class TestStaleFunc:\n"
+            "    def test_it(self):\n"
+            "        pass\n",
+            encoding="utf-8",
+        )
+        self._make_path_patcher(mocker, tmp_path)
+
+        cst.main()
+
+        captured = capsys.readouterr()
+        assert "Removed stale test blocks:" in captured.out
+        assert "stale_func" in captured.out
+
+    def test_stale_blocks_found_removes_them_from_file(self, tmp_path, mocker):
+        """Real main() line 101: the stale block is actually erased from the file."""
+        (tmp_path / "main.py").write_text("def other(): pass\n", encoding="utf-8")
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        test_py = tests_dir / "test_main.py"
+        test_py.write_text(
+            "# ── auto-generated: gone_func ──\n"
+            "class TestGoneFunc:\n"
+            "    def test_gone(self):\n"
+            "        pass\n",
+            encoding="utf-8",
+        )
+        self._make_path_patcher(mocker, tmp_path)
+
+        cst.main()
+
+        assert "TestGoneFunc" not in test_py.read_text(encoding="utf-8")
+
+    def test_no_stale_blocks_prints_no_stale_message(self, tmp_path, mocker, capsys):
+        """Real main(): when no blocks are stale, 'No stale test blocks found.' is printed."""
+        (tmp_path / "main.py").write_text("def kept_func(): pass\n", encoding="utf-8")
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        (tests_dir / "test_main.py").write_text(
+            "# ── auto-generated: kept_func ──\n"
+            "class TestKeptFunc:\n"
+            "    def test_it(self):\n"
+            "        pass\n",
+            encoding="utf-8",
+        )
+        self._make_path_patcher(mocker, tmp_path)
+
+        cst.main()
+
+        captured = capsys.readouterr()
+        assert "No stale test blocks found." in captured.out

@@ -982,6 +982,32 @@ class TestReadIndex:
         assert resp.status_code == 405
 
 
+# ── auto-generated: read_index ──
+class TestReadIndexMissingTemplate:
+    def test_returns_404_when_template_does_not_exist(self):
+        with patch("os.path.exists", return_value=False):
+            resp = client.get("/")
+        assert resp.status_code == 404
+
+    def test_os_path_exists_called_with_template_path(self):
+        with patch("os.path.exists", return_value=False) as mock_exists:
+            resp = client.get("/")
+        mock_exists.assert_called_with("templates/index.html")
+        assert resp.status_code == 404
+
+    def test_returns_file_response_when_template_exists(self):
+        import tempfile, os
+        with tempfile.TemporaryDirectory() as tmpdir:
+            template_path = os.path.join(tmpdir, "index.html")
+            with open(template_path, "w") as f:
+                f.write("<html><body>Hello</body></html>")
+            with patch("os.path.exists", return_value=True), \
+                 patch("main.FileResponse") as mock_fr:
+                mock_fr.return_value = mock_fr
+                client.get("/")
+            mock_fr.assert_called_with("templates/index.html")
+
+
 # ── auto-generated: trigger_notification_batch ──
 class TestTriggerNotificationBatch:
     def test_returns_emails_sent_count(self):
