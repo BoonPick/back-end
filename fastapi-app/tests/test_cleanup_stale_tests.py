@@ -709,3 +709,117 @@ class TestMainFunctionDirect:
         cst.main()
 
         assert called == [True]
+
+
+# ── auto-generated: main ──
+import io
+from contextlib import redirect_stdout, redirect_stderr
+from pathlib import Path as _RealPath
+from unittest.mock import patch as _patch, MagicMock as _MagicMock
+
+
+def _make_patched_path_class(base_dir):
+    """Return a Path subclass that redirects Path(__file__).resolve().parent.parent
+    to *base_dir*, leaving all other Path operations untouched."""
+    script_resolved = str(_RealPath(cst.__file__).resolve())
+
+    class _PatchedPath(type(_RealPath())):
+        def __new__(cls, *args, **kwargs):
+            return _RealPath.__new__(cls, *args, **kwargs)
+
+        def resolve(self):
+            result = super().resolve()
+            if str(result) == script_resolved:
+                mock = _MagicMock()
+                mock.parent.parent = base_dir
+                return mock
+            return result
+
+    return _PatchedPath
+
+
+class TestMainRealCallLines91_92_94_95_101:
+    """Exercises the real main() body (not a re-implementation) so that
+    lines 91-92, 94-95, and 101 are actually executed by coverage."""
+
+    # ------------------------------------------------------------------
+    # Lines 91-92: main_py does NOT exist → ERROR on stderr + sys.exit(1)
+    # ------------------------------------------------------------------
+
+    def test_main_py_missing_exits_1(self, tmp_path):
+        """Real main(): main.py absent → sys.exit(1) (lines 91-92)."""
+        (tmp_path / "tests").mkdir()
+        # main.py intentionally not created
+
+        PatchedPath = _make_patched_path_class(tmp_path)
+        with _patch("cleanup_stale_tests.Path", PatchedPath):
+            with pytest.raises(SystemExit) as exc_info:
+                cst.main()
+        assert exc_info.value.code == 1
+
+    def test_main_py_missing_prints_error_to_stderr(self, tmp_path):
+        """Real main(): main.py absent → 'ERROR' printed to stderr (line 91)."""
+        (tmp_path / "tests").mkdir()
+
+        PatchedPath = _make_patched_path_class(tmp_path)
+        buf_err = io.StringIO()
+        with _patch("cleanup_stale_tests.Path", PatchedPath):
+            with redirect_stderr(buf_err):
+                with pytest.raises(SystemExit):
+                    cst.main()
+        assert "ERROR" in buf_err.getvalue()
+
+    # ------------------------------------------------------------------
+    # Lines 94-95: test_main.py does NOT exist → SKIP on stdout + sys.exit(0)
+    # ------------------------------------------------------------------
+
+    def test_test_py_missing_exits_0(self, tmp_path):
+        """Real main(): main.py present, test_main.py absent → sys.exit(0) (lines 94-95)."""
+        (tmp_path / "tests").mkdir()
+        (tmp_path / "main.py").write_text("def hello(): pass\n", encoding="utf-8")
+        # test_main.py intentionally not created
+
+        PatchedPath = _make_patched_path_class(tmp_path)
+        with _patch("cleanup_stale_tests.Path", PatchedPath):
+            with pytest.raises(SystemExit) as exc_info:
+                cst.main()
+        assert exc_info.value.code == 0
+
+    def test_test_py_missing_prints_skip_to_stdout(self, tmp_path):
+        """Real main(): test_main.py absent → 'SKIP' printed to stdout (line 94)."""
+        (tmp_path / "tests").mkdir()
+        (tmp_path / "main.py").write_text("def hello(): pass\n", encoding="utf-8")
+
+        PatchedPath = _make_patched_path_class(tmp_path)
+        buf_out = io.StringIO()
+        with _patch("cleanup_stale_tests.Path", PatchedPath):
+            with redirect_stdout(buf_out):
+                with pytest.raises(SystemExit):
+                    cst.main()
+        assert "SKIP" in buf_out.getvalue()
+
+    # ------------------------------------------------------------------
+    # Line 101: removed is non-empty → stale names printed to stdout
+    # ------------------------------------------------------------------
+
+    def test_removed_blocks_printed_to_stdout(self, tmp_path):
+        """Real main(): stale block exists → 'Removed stale test blocks:' + name printed (line 101)."""
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        (tmp_path / "main.py").write_text("def live_func(): pass\n", encoding="utf-8")
+        (tests_dir / "test_main.py").write_text(
+            "# ── auto-generated: dead_func ──\n"
+            "class TestDeadFunc:\n"
+            "    def test_dead(self):\n"
+            "        pass\n",
+            encoding="utf-8",
+        )
+
+        PatchedPath = _make_patched_path_class(tmp_path)
+        buf_out = io.StringIO()
+        with _patch("cleanup_stale_tests.Path", PatchedPath):
+            with redirect_stdout(buf_out):
+                cst.main()
+        output = buf_out.getvalue()
+        assert "Removed stale test blocks:" in output
+        assert "dead_func" in output

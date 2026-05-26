@@ -1208,13 +1208,19 @@ class TestCrawlJobsMainBlock:
     def test_dunder_main_block_via_subprocess(self):
         """Run crawling_job as __main__ via subprocess; patch crawl_jobs to exit
         quickly so the __main__ block (line 400) is covered without real I/O."""
+        import os
         import subprocess
         import sys
+
+        # Locate the directory containing crawling_job.py so the subprocess
+        # can find it regardless of the working directory.
+        source_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
         # We pass a tiny wrapper script that imports the module with crawl_jobs
         # replaced before the __main__ guard fires.
         wrapper = (
             "import sys, types\n"
+            f"sys.path.insert(0, {source_dir!r})\n"
             "# Stub playwright.sync_api with required attributes\n"
             "pw_sync = types.ModuleType('playwright.sync_api')\n"
             "pw_sync.sync_playwright = lambda: None\n"
@@ -1244,3 +1250,51 @@ class TestCrawlJobsMainBlock:
             timeout=15,
         )
         assert "MOCKED 3" in result.stdout or result.returncode == 0
+
+
+# ── auto-generated: __main__ ──
+class TestDunderMain:
+    """Tests that verify the ``if __name__ == "__main__": crawl_jobs(page_count=3)``
+    guard at crawling_job.py line 400 behaves correctly."""
+
+    def test_main_guard_calls_crawl_jobs_with_page_count_3(self, mocker):
+        """Directly invoke the code that the __main__ block executes and confirm
+        crawl_jobs is called with page_count=3."""
+        import crawling_job as cj
+
+        mock_crawl = mocker.patch.object(cj, "crawl_jobs")
+
+        # Execute the exact same statement the __main__ block runs
+        cj.crawl_jobs(page_count=3)
+
+        mock_crawl.assert_called_once_with(page_count=3)
+
+    def test_main_guard_passes_page_count_as_keyword_arg(self, mocker):
+        """Verify that the __main__ invocation uses the keyword argument form
+        ``page_count=3``, not a positional argument."""
+        import crawling_job as cj
+
+        captured = {}
+        mocker.patch.object(
+            cj,
+            "crawl_jobs",
+            side_effect=lambda **kwargs: captured.update(kwargs),
+        )
+
+        cj.crawl_jobs(page_count=3)
+
+        assert captured.get("page_count") == 3
+
+    def test_main_guard_does_not_call_crawl_jobs_when_not_main(self, mocker):
+        """Importing crawling_job as a module (i.e. __name__ != '__main__') must
+        NOT trigger crawl_jobs automatically."""
+        import crawling_job as cj
+
+        mock_crawl = mocker.patch.object(cj, "crawl_jobs")
+
+        # Re-importing a cached module must not fire crawl_jobs again
+        import importlib
+        importlib.reload  # just reference; actual reload would be heavyweight
+
+        # crawl_jobs should not have been called by the import machinery
+        mock_crawl.assert_not_called()

@@ -1011,3 +1011,40 @@ class TestTriggerNotificationBatch:
         assert list(body.keys()) == ["emails_sent"]
 
 
+# ── auto-generated: read_index ──
+class TestReadIndexCoverage:
+    """Targeted tests for main.read_index (line 840) that mock os.path.exists
+    so both branches are exercised deterministically."""
+
+    def test_returns_404_when_template_does_not_exist(self):
+        """When templates/index.html is absent, the endpoint returns HTTP 404."""
+        with patch("main.os.path.exists", return_value=False):
+            resp = client.get("/")
+        assert resp.status_code == 404
+
+    def test_returns_file_response_when_template_exists(self):
+        """When templates/index.html exists, the endpoint serves it (200)."""
+        with patch("main.os.path.exists", return_value=True), \
+             patch("main.FileResponse") as mock_fr:
+            # Make FileResponse return a simple dict so TestClient can handle it
+            mock_fr.return_value = MagicMock(
+                status_code=200,
+                headers={"content-type": "text/html"},
+            )
+            # Use starlette Response directly to avoid actual file I/O
+            from starlette.responses import Response as StarletteResponse
+            mock_fr.return_value = StarletteResponse(
+                content="<html></html>", media_type="text/html"
+            )
+            resp = client.get("/")
+        # os.path.exists returned True, so FileResponse (not 404 Response) was used
+        mock_fr.assert_called_once_with("templates/index.html")
+        assert resp.status_code == 200
+
+    def test_os_path_exists_called_with_correct_path(self):
+        """Verify that os.path.exists is invoked with exactly 'templates/index.html'."""
+        with patch("main.os.path.exists", return_value=False) as mock_exists:
+            client.get("/")
+        mock_exists.assert_called_once_with("templates/index.html")
+
+
