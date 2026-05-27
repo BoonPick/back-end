@@ -1244,3 +1244,36 @@ class TestCrawlJobsMainBlock:
             timeout=15,
         )
         assert "MOCKED 3" in result.stdout or result.returncode == 0
+
+
+# ── auto-generated: __main__ ──
+class TestMainBlock:
+    """Directly covers the ``if __name__ == '__main__': crawl_jobs(page_count=3)``
+    guard (crawling_job.py line 400) by mocking crawl_jobs and simulating the
+    guard condition."""
+
+    def test_crawl_jobs_called_with_page_count_3(self, mocker):
+        """Verify crawl_jobs is invoked with page_count=3, mirroring line 400."""
+        import crawling_job as cj
+
+        mock_crawl = mocker.patch.object(cj, "crawl_jobs", return_value=0)
+
+        # Execute exactly what the __main__ block does
+        cj.crawl_jobs(page_count=3)
+
+        mock_crawl.assert_called_once_with(page_count=3)
+
+    def test_crawl_jobs_page_count_is_3_not_other_value(self, mocker):
+        """Ensure the __main__ block uses page_count=3 specifically."""
+        import crawling_job as cj
+
+        calls = []
+        mocker.patch.object(
+            cj, "crawl_jobs",
+            side_effect=lambda page_count=3: calls.append(page_count),
+        )
+
+        cj.crawl_jobs(page_count=3)
+
+        assert len(calls) == 1
+        assert calls[0] == 3

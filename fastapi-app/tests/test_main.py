@@ -1011,3 +1011,23 @@ class TestTriggerNotificationBatch:
         assert list(body.keys()) == ["emails_sent"]
 
 
+# ── auto-generated: read_index ──
+class TestReadIndexMissing:
+    """Covers the 404 branch in read_index (main.py line 839):
+        if not os.path.exists("templates/index.html"):
+            return Response(status_code=404)
+    """
+
+    def test_returns_404_when_index_html_does_not_exist(self):
+        """When templates/index.html is absent, GET / must return 404."""
+        with patch("main.os.path.exists", return_value=False):
+            resp = client.get("/")
+        assert resp.status_code == 404
+
+    def test_os_path_exists_called_with_correct_path(self):
+        """os.path.exists is checked against 'templates/index.html'."""
+        with patch("main.os.path.exists", return_value=False) as mock_exists:
+            client.get("/")
+        mock_exists.assert_called_once_with("templates/index.html")
+
+

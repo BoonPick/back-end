@@ -709,3 +709,142 @@ class TestMainFunctionDirect:
         cst.main()
 
         assert called == [True]
+
+
+# ── auto-generated: main ──
+class TestMainRealCoverage:
+    """Cover the real main() body lines 91, 92, 94, 95, 101 by patching
+    cleanup_stale_tests.Path so Path(__file__).resolve().parent.parent
+    returns a controlled tmp directory."""
+
+    def _patch_base(self, mocker, tmp_path):
+        """Patch cleanup_stale_tests.Path so that the first call (Path(__file__))
+        resolves its .parent.parent chain to tmp_path, while subsequent calls to
+        Path with string arguments delegate to the real pathlib.Path."""
+        real_Path = Path
+
+        call_count = {"n": 0}
+
+        def fake_path_constructor(*args, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1 and not args:
+                # Path() called with no args — shouldn't happen; fall through
+                return real_Path(*args, **kwargs)
+            if call_count["n"] == 1:
+                # This is the Path(__file__) call inside main()
+                mock_file = mocker.MagicMock()
+                mock_file.resolve.return_value.parent.parent = tmp_path
+                return mock_file
+            # All other Path(x) calls use the real implementation
+            return real_Path(*args, **kwargs)
+
+        mocker.patch("cleanup_stale_tests.Path", side_effect=fake_path_constructor)
+
+    # ------------------------------------------------------------------
+    # Line 91+92: main.py missing → print ERROR to stderr + sys.exit(1)
+    # ------------------------------------------------------------------
+
+    def test_real_main_line91_92_error_printed_and_exit1(self, tmp_path, mocker, capsys):
+        """Real main(): main.py absent → line 91 (print ERROR) and line 92 (sys.exit(1))."""
+        # Arrange: tmp_path has no main.py
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        self._patch_base(mocker, tmp_path)
+
+        with pytest.raises(SystemExit) as exc_info:
+            cst.main()
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "ERROR" in captured.err
+
+    def test_real_main_line91_error_message_contains_path(self, tmp_path, mocker, capsys):
+        """Real main() line 91: stderr message includes the missing main.py path."""
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        self._patch_base(mocker, tmp_path)
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        captured = capsys.readouterr()
+        assert "main.py" in captured.err
+
+    # ------------------------------------------------------------------
+    # Line 94+95: main.py present, test_main.py missing → print SKIP + sys.exit(0)
+    # ------------------------------------------------------------------
+
+    def test_real_main_line94_95_skip_printed_and_exit0(self, tmp_path, mocker, capsys):
+        """Real main(): test_main.py absent → line 94 (print SKIP) and line 95 (sys.exit(0))."""
+        # Arrange: main.py exists, tests dir exists but test_main.py does not
+        (tmp_path / "main.py").write_text("def hello(): pass\n", encoding="utf-8")
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        # test_main.py intentionally NOT created
+        self._patch_base(mocker, tmp_path)
+
+        with pytest.raises(SystemExit) as exc_info:
+            cst.main()
+
+        assert exc_info.value.code == 0
+        captured = capsys.readouterr()
+        assert "SKIP" in captured.out
+
+    def test_real_main_line94_skip_message_contains_path(self, tmp_path, mocker, capsys):
+        """Real main() line 94: stdout SKIP message includes the missing test_main.py path."""
+        (tmp_path / "main.py").write_text("def hello(): pass\n", encoding="utf-8")
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        self._patch_base(mocker, tmp_path)
+
+        with pytest.raises(SystemExit):
+            cst.main()
+
+        captured = capsys.readouterr()
+        assert "test_main.py" in captured.out
+
+    # ------------------------------------------------------------------
+    # Line 101: both files present, stale blocks removed → print removed names
+    # ------------------------------------------------------------------
+
+    def test_real_main_line101_removed_names_printed(self, tmp_path, mocker, capsys):
+        """Real main() line 101: when stale blocks are found, their names are printed."""
+        # Arrange: main.py has live_func; test_main.py has stale block for dead_func
+        (tmp_path / "main.py").write_text("def live_func(): pass\n", encoding="utf-8")
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        (tests_dir / "test_main.py").write_text(
+            "# ── auto-generated: dead_func ──\n"
+            "class TestDeadFunc:\n"
+            "    def test_dead(self):\n"
+            "        pass\n",
+            encoding="utf-8",
+        )
+        self._patch_base(mocker, tmp_path)
+
+        cst.main()
+
+        captured = capsys.readouterr()
+        assert "Removed stale test blocks:" in captured.out
+        assert "dead_func" in captured.out
+
+    def test_real_main_line101_multiple_removed_names_printed(self, tmp_path, mocker, capsys):
+        """Real main() line 101: multiple removed names appear comma-separated."""
+        (tmp_path / "main.py").write_text("def live_func(): pass\n", encoding="utf-8")
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        (tests_dir / "test_main.py").write_text(
+            "# ── auto-generated: func_a ──\n"
+            "class TestFuncA:\n"
+            "    def test_a(self):\n"
+            "        pass\n"
+            "\n"
+            "# ── auto-generated: func_b ──\n"
+            "class TestFuncB:\n"
+            "    def test_b(self):\n"
+            "        pass\n",
+            encoding="utf-8",
+        )
+        self._patch_base(mocker, tmp_path)
+
+        cst.main()
+
+        captured = capsys.readouterr()
+        assert "func_a" in captured.out
+        assert "func_b" in captured.out
