@@ -982,6 +982,40 @@ class TestReadIndex:
         assert resp.status_code == 405
 
 
+# ── auto-generated: read_index ──
+class TestReadIndexMissingFile:
+    """Tests that exercise the `if not os.path.exists(...)` branch in read_index()
+    (main.py line 839): when templates/index.html does not exist, a 404 Response
+    is returned immediately without attempting FileResponse."""
+
+    def test_returns_404_when_template_missing(self):
+        """When os.path.exists returns False, read_index() returns HTTP 404."""
+        with patch("os.path.exists", return_value=False):
+            resp = client.get("/")
+        assert resp.status_code == 404
+
+    def test_returns_404_without_body_when_template_missing(self):
+        """The 404 response produced by the missing-file branch has no body content."""
+        with patch("os.path.exists", return_value=False):
+            resp = client.get("/")
+        assert resp.status_code == 404
+        # FastAPI Response(status_code=404) yields an empty body
+        assert resp.content == b""
+
+    def test_os_path_exists_called_with_correct_path(self):
+        """os.path.exists is invoked with 'templates/index.html'."""
+        with patch("os.path.exists", return_value=False) as mock_exists:
+            client.get("/")
+        mock_exists.assert_called_with("templates/index.html")
+
+    def test_does_not_raise_when_template_missing(self):
+        """The missing-file branch does not raise; it returns a Response object."""
+        with patch("os.path.exists", return_value=False):
+            resp = client.get("/")
+        # Simply reaching here means no unhandled exception was raised.
+        assert resp.status_code == 404
+
+
 # ── auto-generated: trigger_notification_batch ──
 class TestTriggerNotificationBatch:
     def test_returns_emails_sent_count(self):
@@ -1009,5 +1043,42 @@ class TestTriggerNotificationBatch:
             resp = client.post("/api/admin/notify")
         body = resp.json()
         assert list(body.keys()) == ["emails_sent"]
+
+
+# ── auto-generated: read_index ──
+class TestReadIndexMissingFileBranch:
+    """Directly target main.py line 839:
+        if not os.path.exists('templates/index.html'): return Response(status_code=404)
+
+    Patches ``main.os.path.exists`` (the ``os`` reference that ``main`` imported)
+    so the branch is provably executed.
+    """
+
+    def test_missing_template_returns_404_via_main_os_patch(self):
+        """Patch main.os.path.exists → False; the branch returns Response(404)."""
+        with patch("main.os.path.exists", return_value=False):
+            resp = client.get("/")
+        assert resp.status_code == 404
+
+    def test_missing_template_response_body_is_empty(self):
+        """The 404 returned by the branch is a bare Response with no body."""
+        with patch("main.os.path.exists", return_value=False):
+            resp = client.get("/")
+        assert resp.content == b""
+
+    def test_missing_template_checked_with_correct_path_argument(self):
+        """os.path.exists is called with exactly 'templates/index.html'."""
+        with patch("main.os.path.exists", return_value=False) as mock_exists:
+            client.get("/")
+        mock_exists.assert_called_with("templates/index.html")
+
+    def test_missing_template_does_not_raise(self):
+        """When the template is absent no exception propagates; only 404 is returned."""
+        with patch("main.os.path.exists", return_value=False):
+            try:
+                resp = client.get("/")
+                assert resp.status_code == 404
+            except Exception as exc:
+                pytest.fail(f"read_index raised unexpectedly: {exc}")
 
 

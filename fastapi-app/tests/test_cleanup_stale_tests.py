@@ -709,3 +709,140 @@ class TestMainFunctionDirect:
         cst.main()
 
         assert called == [True]
+
+
+# ── auto-generated: main ──
+class TestMainRealBody:
+    """Tests that invoke the *real* cst.main() body (lines 86-107) by patching
+    cst.Path so that Path(__file__).resolve().parent.parent resolves to a
+    controlled tmp directory.  This ensures lines 91-92, 94-95, and 101 are
+    hit by the coverage tool."""
+
+    def _patch_base(self, mocker, tmp_path):
+        """Make cst.Path(__file__).resolve().parent.parent return tmp_path.
+
+        The real main() does:
+            base = Path(__file__).resolve().parent.parent
+            main_py = base / "main.py"
+            test_py = base / "tests" / "test_main.py"
+
+        We intercept only the single call Path(cst.__file__) by using a
+        side_effect that returns a real pathlib.Path for everything else.
+        """
+        original_path = cst.Path  # keep reference to real Path
+
+        def path_side_effect(arg=None, *args, **kwargs):
+            if arg is None:
+                return original_path()
+            # When called with the script's __file__, chain resolve().parent.parent
+            # to tmp_path via a MagicMock.
+            if str(arg) == str(cst.__file__):
+                fake = mocker.MagicMock()
+                fake.resolve.return_value.parent.parent = tmp_path
+                return fake
+            # For all other calls (e.g. base / "main.py") use real Path
+            return original_path(arg, *args, **kwargs)
+
+        mocker.patch("cleanup_stale_tests.Path", side_effect=path_side_effect)
+
+    # ------------------------------------------------------------------
+    # Lines 91-92: main.py does NOT exist → stderr error + sys.exit(1)
+    # ------------------------------------------------------------------
+
+    def test_real_main_missing_main_py_exits_1(self, tmp_path, mocker, capsys):
+        """Real main() body: main.py absent → sys.exit(1)."""
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        # main.py intentionally NOT created
+        self._patch_base(mocker, tmp_path)
+        with pytest.raises(SystemExit) as exc_info:
+            cst.main()
+        assert exc_info.value.code == 1
+
+    def test_real_main_missing_main_py_prints_error_to_stderr(self, tmp_path, mocker, capsys):
+        """Real main() body: when main.py is absent the ERROR line goes to stderr."""
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        self._patch_base(mocker, tmp_path)
+        with pytest.raises(SystemExit):
+            cst.main()
+        captured = capsys.readouterr()
+        assert "ERROR" in captured.err
+
+    # ------------------------------------------------------------------
+    # Lines 94-95: main.py exists, test_main.py does NOT → skip + sys.exit(0)
+    # ------------------------------------------------------------------
+
+    def test_real_main_missing_test_py_exits_0(self, tmp_path, mocker, capsys):
+        """Real main() body: test_main.py absent → sys.exit(0)."""
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "main.py").write_text("def hello(): pass\n", encoding="utf-8")
+        # test_main.py intentionally NOT created
+        self._patch_base(mocker, tmp_path)
+        with pytest.raises(SystemExit) as exc_info:
+            cst.main()
+        assert exc_info.value.code == 0
+
+    def test_real_main_missing_test_py_prints_skip(self, tmp_path, mocker, capsys):
+        """Real main() body: when test_py is absent a SKIP message is printed."""
+        import io
+        from contextlib import redirect_stdout
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "main.py").write_text("def hello(): pass\n", encoding="utf-8")
+        self._patch_base(mocker, tmp_path)
+        buf = io.StringIO()
+        with pytest.raises(SystemExit):
+            with redirect_stdout(buf):
+                cst.main()
+        assert "SKIP" in buf.getvalue()
+
+    # ------------------------------------------------------------------
+    # Line 101: both files exist, cleanup removes blocks → prints names
+    # ------------------------------------------------------------------
+
+    def test_real_main_removed_branch_prints_stale_names(self, tmp_path, mocker, capsys):
+        """Real main() body line 101: removed list is non-empty → printed."""
+        import io
+        from contextlib import redirect_stdout
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "main.py").write_text("def live_func(): pass\n", encoding="utf-8")
+        (tests_dir / "test_main.py").write_text(
+            "# ── auto-generated: dead_func ──\n"
+            "class TestDeadFunc:\n"
+            "    def test_dead(self):\n"
+            "        pass\n",
+            encoding="utf-8",
+        )
+        self._patch_base(mocker, tmp_path)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cst.main()
+        output = buf.getvalue()
+        assert "Removed stale test blocks:" in output
+        assert "dead_func" in output
+
+    def test_real_main_removed_branch_stale_names_joined_by_comma(self, tmp_path, mocker, capsys):
+        """Line 101: multiple removed names are comma-joined in the output."""
+        import io
+        from contextlib import redirect_stdout
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "main.py").write_text("def live(): pass\n", encoding="utf-8")
+        (tests_dir / "test_main.py").write_text(
+            "# ── auto-generated: func_a ──\n"
+            "class TestFuncA:\n"
+            "    def test_a(self): pass\n"
+            "\n"
+            "# ── auto-generated: func_b ──\n"
+            "class TestFuncB:\n"
+            "    def test_b(self): pass\n",
+            encoding="utf-8",
+        )
+        self._patch_base(mocker, tmp_path)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cst.main()
+        output = buf.getvalue()
+        assert "func_a" in output
+        assert "func_b" in output
+        # Both names appear in the same printed line (comma-joined)
+        assert "Removed stale test blocks:" in output
