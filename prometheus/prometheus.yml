@@ -12,3 +12,9 @@ scrape_configs:
   - job_name: 'node'
     static_configs:
       - targets: ['node-exporter:9100']
+
+  # MySQL 메트릭 수집 (mysqld-exporter). 커넥션 수/스레드/쿼리율 등.
+  # 부하 중 Threads_connected, Max_used_connections 로 커넥션 풀 고갈을 관찰.
+  - job_name: 'mysql'
+    static_configs:
+      - targets: ['mysqld-exporter:9104']
