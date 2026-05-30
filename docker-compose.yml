@@ -62,40 +62,9 @@ services:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
-  # 부하 생성기(Apache JMeter). 상시 떠 있는 서비스가 아니라 "1회 실행 후 종료"되는 작업이므로
-  # profiles 로 분리해 `docker compose up -d` 시에는 뜨지 않게 한다.
-  # 플랜/타깃/부하량을 모두 환경변수로 주입 — 로컬 스모크부터 팀 서버 부하/스트레스까지 한 서비스로 커버.
-  #   스모크(로컬):  docker compose --profile loadtest run --rm jmeter
-  #   부하(팀서버):  run-load.ps1 / run-stress.ps1 드라이버 사용 (권장)
-  # jmeter/ 전체를 /plans 로 마운트하므로 모든 .jmx 와 ids.csv 를 재빌드 없이 사용한다.
-  jmeter:
-    build: ./jmeter
-    image: boonpick-jmeter
-    container_name: boonpick-jmeter
-    profiles: ["loadtest"]
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    volumes:
-      - ./jmeter:/plans:ro
-      - ./jmeter/results:/results
-    command:
-      - "-n"
-      - "-t"
-      - "/plans/${LT_PLAN:-board_smoke.jmx}"
-      - "-Jhost=${LT_HOST:-host.docker.internal}"
-      - "-Jport=${LT_PORT:-8000}"
-      - "-Jthreads=${LT_THREADS:-10}"
-      - "-Jrampup=${LT_RAMPUP:-5}"
-      - "-Jduration=${LT_DURATION:-30}"
-      - "-Jthinktime=${LT_THINKTIME:-200}"
-      - "-Jpath=${LT_PATH:-/api/board}"
-      - "-l"
-      - "/results/${LT_OUT:-result}.jtl"
-      - "-j"
-      - "/results/${LT_OUT:-result}.log"
-      - "-e"
-      - "-o"
-      - "/results/${LT_OUT:-result}-report"
+  # ⚠️ JMeter 부하 생성기는 이 모니터링 compose 에 두지 않는다.
+  # 이 파일은 운영 서버(~/boonpick-monitoring)로 배포되는데, build 컨텍스트(./jmeter)가
+  # 서버엔 없어 배포가 깨지기 때문. 부하테스트는 docker-compose.loadtest.yml 참고.
 
 volumes:
   grafana-data:

@@ -16,7 +16,7 @@ param(
   [int]$ThinkTime = 300
 )
 # docker compose 는 진행상황을 stderr 로 출력하므로 Stop 을 켜면 정상 동작도 중단된다 → 끄고 진행.
-$compose = Join-Path (Split-Path $PSScriptRoot -Parent) "docker-compose.yml"
+$compose = Join-Path (Split-Path $PSScriptRoot -Parent) "docker-compose.loadtest.yml"
 
 $env:LT_PLAN     = "load_test.jmx"
 $env:LT_HOST     = $TargetHost
@@ -28,7 +28,7 @@ $env:LT_THINKTIME= "$ThinkTime"
 $env:LT_OUT      = "load"
 
 Write-Host "=== Load: $TargetHost`:$Port  동시 ${Threads}명 / ${Duration}s ===" -ForegroundColor Cyan
-docker compose -f $compose --profile loadtest run --rm jmeter
+docker compose -f $compose run --rm jmeter
 
 $jtl = Join-Path $PSScriptRoot "results\load.jtl"
 if (Test-Path $jtl) {

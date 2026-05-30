@@ -20,7 +20,7 @@ jmeter/
 
 ```bash
 # 백엔드 디렉터리(docker-compose.yml 위치)에서
-docker compose --profile loadtest run --rm jmeter
+docker compose -f docker-compose.loadtest.yml run --rm jmeter
 ```
 
 기본 플랜은 `board_smoke.jmx`(게시판 동시 10명). 결과:
@@ -42,13 +42,13 @@ docker compose --profile loadtest run --rm jmeter
 
 ```bash
 # Smoke (매 빌드용, 가볍게)
-LT_THREADS=10 LT_DURATION=30 docker compose --profile loadtest run --rm jmeter
+LT_THREADS=10 LT_DURATION=30 docker compose -f docker-compose.loadtest.yml run --rm jmeter
 
 # Load (예상 트래픽)
-LT_THREADS=50 LT_DURATION=300 docker compose --profile loadtest run --rm jmeter
+LT_THREADS=50 LT_DURATION=300 docker compose -f docker-compose.loadtest.yml run --rm jmeter
 
 # Stress (한계 탐색 — 단계적으로 올려가며 반복)
-LT_THREADS=200 LT_RAMPUP=30 LT_DURATION=120 docker compose --profile loadtest run --rm jmeter
+LT_THREADS=200 LT_RAMPUP=30 LT_DURATION=120 docker compose -f docker-compose.loadtest.yml run --rm jmeter
 ```
 
 ## 모니터링 연동

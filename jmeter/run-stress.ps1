@@ -19,7 +19,7 @@ param(
   [double]$MaxP95 = 1000.0
 )
 # docker compose 는 진행상황을 stderr 로 출력하므로 Stop 을 켜면 정상 동작도 중단된다 → 끄고 진행.
-$compose = Join-Path (Split-Path $PSScriptRoot -Parent) "docker-compose.yml"
+$compose = Join-Path (Split-Path $PSScriptRoot -Parent) "docker-compose.loadtest.yml"
 $jtls = @()
 
 foreach ($s in $Steps) {
@@ -37,7 +37,7 @@ foreach ($s in $Steps) {
   $env:LT_THINKTIME= "0"
   $env:LT_PATH     = $Path
   $env:LT_OUT      = "stress-$s"
-  docker compose -f $compose --profile loadtest run --rm jmeter
+  docker compose -f $compose run --rm jmeter
   if (Test-Path $jtl) { $jtls += $jtl } else { Write-Host "  (경고) ${s}명 단계 결과 파일 없음 — 건너뜀" -ForegroundColor Red }
 }
 

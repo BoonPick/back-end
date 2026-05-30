@@ -1,0 +1,37 @@
+# 부하테스트 전용 compose (로컬 실행용). 모니터링 배포(docker-compose.yml)와 분리.
+#   - 운영 서버로 배포되지 않으며, build 컨텍스트(./jmeter)가 있는 로컬에서만 사용.
+#   - 플랜/타깃/부하량을 환경변수로 주입. run-load.ps1 / run-stress.ps1 드라이버가 이 파일을 사용.
+#
+# 직접 실행 예:
+#   docker compose -f docker-compose.loadtest.yml run --rm jmeter
+#   LT_PLAN=load_test.jmx LT_HOST=163.239.77.78 LT_PORT=3000 LT_THREADS=100 \
+#     docker compose -f docker-compose.loadtest.yml run --rm jmeter
+services:
+  jmeter:
+    build: ./jmeter
+    image: boonpick-jmeter
+    container_name: boonpick-jmeter
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # jmeter/ 전체를 /plans 로 마운트 → 재빌드 없이 모든 .jmx 와 ids.csv 사용
+      - ./jmeter:/plans:ro
+      - ./jmeter/results:/results
+    command:
+      - "-n"
+      - "-t"
+      - "/plans/${LT_PLAN:-board_smoke.jmx}"
+      - "-Jhost=${LT_HOST:-host.docker.internal}"
+      - "-Jport=${LT_PORT:-8000}"
+      - "-Jthreads=${LT_THREADS:-10}"
+      - "-Jrampup=${LT_RAMPUP:-5}"
+      - "-Jduration=${LT_DURATION:-30}"
+      - "-Jthinktime=${LT_THINKTIME:-200}"
+      - "-Jpath=${LT_PATH:-/api/board}"
+      - "-l"
+      - "/results/${LT_OUT:-result}.jtl"
+      - "-j"
+      - "/results/${LT_OUT:-result}.log"
+      - "-e"
+      - "-o"
+      - "/results/${LT_OUT:-result}-report"
