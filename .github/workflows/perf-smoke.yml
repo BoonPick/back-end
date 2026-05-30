@@ -1,0 +1,112 @@
+name: Perf Smoke (board)
+
+# 매 빌드마다(=push / PR) 게시판 GET /api/board 를 동시 10명으로 가볍게 두드려
+# 성능 회귀(에러율↑, p95↑)를 조기에 잡는 게이트. 부하가 아니라 경보기 역할.
+on:
+  push:
+    branches-ignore:
+      - 'auto-test/**'   # 봇 생성 테스트 브랜치는 제외
+  pull_request:
+    branches: [main]
+
+# 같은 ref 의 이전 실행은 취소
+concurrency:
+  group: perf-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: boonpick
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -proot"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=20
+
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: root
+      DB_NAME: boonpick
+      JMETER_VERSION: 5.6.3
+      # 통과 기준 — 환경에 맞게 조정
+      MAX_ERROR_RATE: "0"
+      MAX_P95_MS: "800"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python deps
+        run: pip install -r fastapi-app/requirements.txt
+
+      - name: Wait for MySQL & load schema + seed
+        run: |
+          for i in $(seq 1 30); do
+            mysql -h127.0.0.1 -P3306 -uroot -proot -e "SELECT 1" boonpick && break || sleep 2
+          done
+          mysql -h127.0.0.1 -P3306 -uroot -proot boonpick < jmeter/ci/schema.sql
+          mysql -h127.0.0.1 -P3306 -uroot -proot boonpick < jmeter/ci/seed.sql
+          echo "rows in contents:"
+          mysql -h127.0.0.1 -P3306 -uroot -proot -N -e "SELECT COUNT(*) FROM contents" boonpick
+
+      - name: Start FastAPI (uvicorn)
+        run: |
+          cd fastapi-app
+          nohup uvicorn main:app --host 0.0.0.0 --port 8000 > /tmp/uvicorn.log 2>&1 &
+          echo "FastAPI 기동 대기..."
+          for i in $(seq 1 30); do
+            if curl -sf "http://localhost:8000/api/board?page=1&size=1" > /dev/null; then
+              echo "FastAPI ready"; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::FastAPI 기동 실패"; echo "---- uvicorn.log ----"; cat /tmp/uvicorn.log; exit 1
+
+      - name: Install JMeter ${{ env.JMETER_VERSION }}
+        run: |
+          curl -fSL "https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-${JMETER_VERSION}.tgz" -o /tmp/jmeter.tgz
+          tar -xzf /tmp/jmeter.tgz -C /opt
+
+      - name: Run smoke — board, 10 concurrent users
+        run: |
+          /opt/apache-jmeter-${JMETER_VERSION}/bin/jmeter -n \
+            -t jmeter/board_smoke.jmx \
+            -Jhost=localhost -Jport=8000 \
+            -Jthreads=10 -Jrampup=2 -Jduration=20 -Jthinktime=50 \
+            -l results.jtl -j jmeter.log \
+            -e -o report
+
+      - name: Evaluate thresholds (gate)
+        run: |
+          python jmeter/ci/check_smoke.py results.jtl \
+            --label board \
+            --max-error-rate "${MAX_ERROR_RATE}" \
+            --max-p95 "${MAX_P95_MS}"
+
+      - name: Upload JMeter report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmeter-smoke-report
+          path: |
+            report
+            results.jtl
+          if-no-files-found: warn
+
+      - name: Dump uvicorn log on failure
+        if: failure()
+        run: cat /tmp/uvicorn.log || true
