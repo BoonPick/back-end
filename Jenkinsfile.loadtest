@@ -1,0 +1,154 @@
+// =====================================================================
+// 부하테스트 전용 Jenkins 파이프라인 (on-demand, 버튼 실행)
+//
+// 사용법:
+//   Jenkins > New Item > Pipeline 생성 > Pipeline script from SCM
+//     - SCM: 이 백엔드 레포
+//     - Script Path: Jenkinsfile.loadtest
+//   생성 후 "Build with Parameters" 버튼으로 smoke/load/stress 선택 실행.
+//
+// 결과:
+//   - 콘솔에 요약/한계점 표
+//   - 빌드 페이지 좌측 "JMeter Report" (HTML Publisher 플러그인 필요)
+//   - Artifacts 에 jtl + report 보관
+//
+// 에이전트 요구사항: curl, tar, python3 (메인 Jenkinsfile 과 동일 환경)
+// =====================================================================
+pipeline {
+    agent any
+
+    parameters {
+        choice(name: 'TEST_TYPE', choices: ['smoke', 'load', 'stress'],
+               description: 'smoke=게시판 10명 회귀확인 / load=혼합 100명 / stress=단계 상승 한계탐색')
+        string(name: 'TARGET_HOST', defaultValue: '163.239.77.78', description: '대상 호스트')
+        string(name: 'PORT', defaultValue: '3000', description: '대상 포트 (실서비스 3000)')
+        string(name: 'THREADS', defaultValue: '100', description: '[load] 동시 사용자 수')
+        string(name: 'DURATION', defaultValue: '60', description: '부하 유지 시간(초). stress는 단계별 시간')
+        string(name: 'RAMPUP', defaultValue: '20', description: 'Ramp-up 시간(초)')
+        string(name: 'STRESS_STEPS', defaultValue: '10,50,100,200,400', description: '[stress] 동시 사용자 단계(콤마)')
+        string(name: 'ENDPOINT_PATH', defaultValue: '/api/board', description: '[stress] 대상 엔드포인트')
+        string(name: 'MAX_P95_MS', defaultValue: '1000', description: '[smoke 게이트/stress 한계] p95 임계(ms)')
+        string(name: 'MAX_ERROR_RATE', defaultValue: '1', description: '[smoke 게이트/stress 한계] 에러율 임계(%)')
+    }
+
+    environment {
+        JMETER_VERSION = '5.6.3'
+        JMETER_HOME = "${WORKSPACE}/apache-jmeter-5.6.3"
+    }
+
+    options {
+        timeout(time: 30, unit: 'MINUTES')
+        disableConcurrentBuilds()   // 동시 부하 실행 방지
+    }
+
+    stages {
+        stage('Checkout') {
+            steps { checkout scm }
+        }
+
+        stage('Install JMeter') {
+            steps {
+                sh '''
+                    set -e
+                    if [ ! -x "$JMETER_HOME/bin/jmeter" ]; then
+                        echo "JMeter ${JMETER_VERSION} 다운로드..."
+                        curl -fSL "https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-${JMETER_VERSION}.tgz" -o jmeter.tgz
+                        tar -xzf jmeter.tgz -C "$WORKSPACE"
+                        rm -f jmeter.tgz
+                    fi
+                    "$JMETER_HOME/bin/jmeter" --version
+                '''
+            }
+        }
+
+        stage('Prepare ids (load)') {
+            when { expression { params.TEST_TYPE == 'load' } }
+            steps {
+                // board 상세(20%)가 유효 id 를 쓰도록 라이브 서버에서 ids.csv 갱신
+                sh '''
+                    set -e
+                    curl -s "http://${TARGET_HOST}:${PORT}/api/board?page=1&size=100" \
+                      | python3 -c "import sys,json; print('\\n'.join(str(x['id']) for x in json.load(sys.stdin)))" \
+                      > jmeter/ids.csv
+                    echo "ids.csv 갱신: $(wc -l < jmeter/ids.csv) 건"
+                '''
+            }
+        }
+
+        stage('Run JMeter') {
+            steps {
+                sh '''
+                    set -e
+                    rm -rf results && mkdir -p results
+                    JM="$JMETER_HOME/bin/jmeter"
+
+                    case "${TEST_TYPE}" in
+                      smoke)
+                        $JM -n -t jmeter/board_smoke.jmx \
+                          -Jhost=${TARGET_HOST} -Jport=${PORT} \
+                          -Jthreads=10 -Jrampup=2 -Jduration=60 -Jthinktime=50 \
+                          -l results/result.jtl -j results/jmeter.log -e -o results/report
+                        ;;
+                      load)
+                        $JM -n -t jmeter/load_test.jmx \
+                          -Jhost=${TARGET_HOST} -Jport=${PORT} \
+                          -Jthreads=${THREADS} -Jrampup=${RAMPUP} -Jduration=${DURATION} -Jthinktime=300 \
+                          -l results/result.jtl -j results/jmeter.log -e -o results/report
+                        ;;
+                      stress)
+                        for s in $(echo ${STRESS_STEPS} | tr ',' ' '); do
+                          echo "================ STRESS STEP: ${s} users / ${DURATION}s ================"
+                          $JM -n -t jmeter/stress_test.jmx \
+                            -Jhost=${TARGET_HOST} -Jport=${PORT} \
+                            -Jthreads=${s} -Jrampup=${RAMPUP} -Jduration=${DURATION} -Jthinktime=0 -Jpath=${ENDPOINT_PATH} \
+                            -l results/stress-${s}.jtl -j results/stress-${s}.log -e -o results/stress-${s}-report
+                        done
+                        ;;
+                    esac
+                '''
+            }
+        }
+
+        stage('Evaluate / Summarize') {
+            steps {
+                sh '''
+                    set -e
+                    case "${TEST_TYPE}" in
+                      smoke)
+                        # 게이트: 임계 초과 시 빌드 실패
+                        python3 jmeter/ci/check_smoke.py results/result.jtl --label board \
+                          --max-error-rate ${MAX_ERROR_RATE} --max-p95 ${MAX_P95_MS}
+                        ;;
+                      load)
+                        python3 jmeter/ci/summarize.py results/result.jtl
+                        ;;
+                      stress)
+                        python3 jmeter/ci/summarize.py --max-error-rate ${MAX_ERROR_RATE} --max-p95 ${MAX_P95_MS} results/stress-*.jtl
+                        ;;
+                    esac
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: 'results/**', allowEmptyArchive: true
+            script {
+                try {
+                    if (params.TEST_TYPE == 'stress') {
+                        publishHTML(target: [reportName: "JMeter Report (stress)", reportDir: 'results',
+                            reportFiles: 'stress-*-report/index.html', keepAll: true,
+                            alwaysLinkToLastBuild: true, allowMissing: true])
+                    } else {
+                        publishHTML(target: [reportName: "JMeter Report (${params.TEST_TYPE})", reportDir: 'results/report',
+                            reportFiles: 'index.html', keepAll: true,
+                            alwaysLinkToLastBuild: true, allowMissing: true])
+                    }
+                } catch (e) {
+                    echo "publishHTML 건너뜀 — HTML Publisher 플러그인 설치 시 빌드 페이지에서 리포트 열람 가능. (${e.message})"
+                }
+            }
+        }
+    }
+}
