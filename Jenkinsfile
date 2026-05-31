@@ -225,8 +225,11 @@ pipeline {
                                         exit 127
                                     fi
                                     echo \\\"Using: \\\$COMPOSE\\\"
-                                    \\\$COMPOSE up -d --remove-orphans
-                                    \\\$COMPOSE restart prometheus
+                                    # KeyError: 'ContainerConfig' (compose v1 의 in-place 재생성 버그) 회피:
+                                    # down 후 up 으로 깔끔히 재생성. 모니터링이라 짧은 재기동 허용,
+                                    # grafana-data 등 named volume 은 down 으로 삭제되지 않아 유지됨.
+                                    \\\$COMPOSE down --remove-orphans || true
+                                    \\\$COMPOSE up -d
                                 "
                             """
                         }
