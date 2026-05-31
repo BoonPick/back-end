@@ -326,11 +326,22 @@ class TestAdminKeywords:
         assert resp.status_code == 404
 
 
-# ── auto-generated: get_db ──
+# ── get_db: 커넥션 풀에서 연결을 가져온다 ──
 class TestGetDb:
-    def test_returns_connection_using_db_config(self):
+    def test_returns_connection_from_pool(self):
         mock_conn = MagicMock()
-        with patch("mysql.connector.connect", return_value=mock_conn) as mock_connect:
+        mock_pool = MagicMock()
+        mock_pool.get_connection.return_value = mock_conn
+        with patch.object(main, "_get_pool", return_value=mock_pool):
+            conn = main.get_db()
+        assert conn is mock_conn
+        mock_pool.get_connection.assert_called_once()
+
+    def test_falls_back_to_direct_connect_when_pool_unavailable(self):
+        # 풀 생성이 실패하면 직접 연결로 폴백한다.
+        mock_conn = MagicMock()
+        with patch.object(main, "_get_pool", side_effect=Exception("pool down")), \
+             patch("mysql.connector.connect", return_value=mock_conn) as mock_connect:
             conn = main.get_db()
         assert conn is mock_conn
         mock_connect.assert_called_once_with(**main.DB_CONFIG)
