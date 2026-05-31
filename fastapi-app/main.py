@@ -43,7 +43,41 @@ DB_CONFIG = {
 }
 
 
+# 커넥션 풀: 요청마다 새 연결(TCP+인증 핸드셰이크 = CPU 낭비)을 만들지 않고 재사용한다.
+# pool_size 는 "워커당" 값 → WORKERS × DB_POOL_SIZE 가 MySQL max_connections(기본 151) 미만이도록 설정.
+# (예: WORKERS=4 × DB_POOL_SIZE=16 = 64 < 151)
+import time as _time
+from mysql.connector import pooling as _pooling, errors as _mysql_errors
+
+_DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "16"))
+_db_pool = None
+
+
+def _get_pool():
+    global _db_pool
+    if _db_pool is None:
+        _db_pool = _pooling.MySQLConnectionPool(
+            pool_name="boonpick",
+            pool_size=_DB_POOL_SIZE,
+            pool_reset_session=True,
+            **DB_CONFIG,
+        )
+    return _db_pool
+
+
 def get_db():
+    """풀에서 커넥션을 가져온다. conn.close() 시 실제 종료가 아니라 풀로 반환된다.
+    풀이 일시적으로 고갈되면 에러 대신 잠깐 대기 후 재시도하고, 그래도 안되면
+    직접 연결로 폴백해 하드 실패를 막는다."""
+    try:
+        pool = _get_pool()
+    except Exception:
+        return mysql.connector.connect(**DB_CONFIG)
+    for _ in range(20):  # 최대 약 2초 대기
+        try:
+            return pool.get_connection()
+        except _mysql_errors.PoolError:
+            _time.sleep(0.1)
     return mysql.connector.connect(**DB_CONFIG)
 
 
@@ -514,19 +548,18 @@ def get_board_items(
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         offset = (page - 1) * size
 
-        # GROUP BY c.id + MAX 집계: job_postings에 같은 content_id로
-        # 중복 row가 있더라도 board 결과가 중복 노출되지 않도록 방어.
+        # job_postings.content_id 에 UNIQUE 제약(migration 001)이 있어 LEFT JOIN 은 1:0..1.
+        # 따라서 기존의 GROUP BY c.id + MAX() 집계는 결과가 동일한 불필요한 CPU 비용이므로 제거.
         query = (
             f"SELECT c.*, "
-            f"MAX(jp.employment)     AS employment, "
-            f"MAX(jp.work_type)      AS work_type, "
-            f"MAX(jp.duty)           AS duty, "
-            f"MAX(jp.deadline)       AS deadline, "
-            f"MAX(jp.is_always_open) AS is_always_open "
+            f"jp.employment     AS employment, "
+            f"jp.work_type      AS work_type, "
+            f"jp.duty           AS duty, "
+            f"jp.deadline       AS deadline, "
+            f"jp.is_always_open AS is_always_open "
             f"FROM contents c "
             f"LEFT JOIN job_postings jp ON jp.content_id = c.id "
             f"{where} "
-            f"GROUP BY c.id "
             f"ORDER BY c.created_at DESC LIMIT %s OFFSET %s"
         )
         params.extend([size, offset])
@@ -547,14 +580,13 @@ def get_board_item(item_id: int):
         cursor = conn.cursor(dictionary=True)
         cursor.execute(
             "SELECT c.*, "
-            "MAX(jp.employment)     AS employment, "
-            "MAX(jp.work_type)      AS work_type, "
-            "MAX(jp.duty)           AS duty, "
-            "MAX(jp.deadline)       AS deadline, "
-            "MAX(jp.is_always_open) AS is_always_open "
+            "jp.employment     AS employment, "
+            "jp.work_type      AS work_type, "
+            "jp.duty           AS duty, "
+            "jp.deadline       AS deadline, "
+            "jp.is_always_open AS is_always_open "
             "FROM contents c LEFT JOIN job_postings jp ON jp.content_id = c.id "
-            "WHERE c.id = %s "
-            "GROUP BY c.id",
+            "WHERE c.id = %s",
             (item_id,),
         )
         row = cursor.fetchone()

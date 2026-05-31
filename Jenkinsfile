@@ -163,6 +163,7 @@ pipeline {
                                     docker stop ${containerName} 2>/dev/null || true && \\
                                     docker rm   ${containerName} 2>/dev/null || true && \\
                                     docker run -d --name ${containerName} -p ${hostPort}:8000 \\
+                                        -e WORKERS=4 \\
                                         -e DB_HOST='${env.DB_HOST}' \\
                                         -e DB_USER='${env.DB_USER}' \\
                                         -e DB_PASSWORD='${env.DB_PASSWORD}' \\
