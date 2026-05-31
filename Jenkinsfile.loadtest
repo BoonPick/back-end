@@ -29,6 +29,8 @@ pipeline {
         string(name: 'ENDPOINT_PATH', defaultValue: '/api/board', description: '[stress] 대상 엔드포인트')
         string(name: 'MAX_P95_MS', defaultValue: '1000', description: '[smoke 게이트/stress 한계] p95 임계(ms)')
         string(name: 'MAX_ERROR_RATE', defaultValue: '1', description: '[smoke 게이트/stress 한계] 에러율 임계(%)')
+        string(name: 'EMAIL_TO', defaultValue: 'kjyyoung0305@gmail.com, yooncy0511@gmail.com, lee.moonjeong@gmail.com, wq0212@naver.com', description: 'AI 리포트 수신 이메일(쉼표 구분)')
+        string(name: 'PROM_URL', defaultValue: 'http://163.239.77.78:9090', description: '서버측 지표 수집용 Prometheus 주소')
     }
 
     environment {
@@ -111,22 +113,22 @@ pipeline {
 
         stage('Evaluate / Summarize') {
             steps {
+                // 1) 클라이언트 결과 요약 + 2) 서버 Prometheus 스냅샷을 파일로 저장 (이메일/AI 입력용)
                 sh '''
-                    set -e
+                    set +e
                     case "${TEST_TYPE}" in
-                      smoke)
-                        # 게이트: 임계 초과 시 빌드 실패
-                        python3 jmeter/ci/check_smoke.py results/result.jtl --label board \
-                          --max-error-rate ${MAX_ERROR_RATE} --max-p95 ${MAX_P95_MS}
-                        ;;
-                      load)
-                        python3 jmeter/ci/summarize.py results/result.jtl
-                        ;;
-                      stress)
-                        python3 jmeter/ci/summarize.py --max-error-rate ${MAX_ERROR_RATE} --max-p95 ${MAX_P95_MS} results/stress-*.jtl
-                        ;;
+                      stress) python3 jmeter/ci/summarize.py --max-error-rate ${MAX_ERROR_RATE} --max-p95 ${MAX_P95_MS} results/stress-*.jtl | tee results/summary.txt ;;
+                      *)      python3 jmeter/ci/summarize.py results/result.jtl | tee results/summary.txt ;;
                     esac
+                    python3 jmeter/ci/prom_snapshot.py --prom-url "${PROM_URL}" --window 15m > results/server_snapshot.txt 2>&1 || true
+                    echo "----- server snapshot -----"; cat results/server_snapshot.txt
                 '''
+                // 3) 스모크는 임계 초과 시 빌드 실패(게이트). 위에서 요약/스냅샷 파일은 이미 기록됨.
+                script {
+                    if (params.TEST_TYPE == 'smoke') {
+                        sh 'python3 jmeter/ci/check_smoke.py results/result.jtl --label board --max-error-rate ${MAX_ERROR_RATE} --max-p95 ${MAX_P95_MS}'
+                    }
+                }
             }
         }
     }
@@ -148,6 +150,66 @@ pipeline {
                 } catch (e) {
                     echo "publishHTML 건너뜀 — HTML Publisher 플러그인 설치 시 빌드 페이지에서 리포트 열람 가능. (${e.message})"
                 }
+            }
+
+            // ── Groq AI 분석 + 이메일 리포트 ──────────────────────────────
+            script {
+                def summary  = fileExists('results/summary.txt')        ? readFile('results/summary.txt')        : '(요약 없음)'
+                def snapshot = fileExists('results/server_snapshot.txt') ? readFile('results/server_snapshot.txt') : '(서버 스냅샷 없음)'
+                def meta = "테스트=${params.TEST_TYPE} | 대상=${params.TARGET_HOST}:${params.PORT} | 빌드=#${env.BUILD_NUMBER} | 결과=${currentBuild.currentResult}\n" +
+                           "파라미터: threads=${params.THREADS}, duration=${params.DURATION}s, rampup=${params.RAMPUP}, stress_steps=${params.STRESS_STEPS}, endpoint=${params.ENDPOINT_PATH}"
+
+                def context = "[부하테스트 메타]\n${meta}\n\n[클라이언트 결과 (JMeter)]\n${summary}\n\n${snapshot}\n"
+
+                def prompt = "너는 시니어 성능엔지니어이자 SRE다. 아래 부하테스트 결과(클라이언트 JMeter + 서버 Prometheus 스냅샷)를 분석해서 한국어로 보고하라. 반드시 다음 5개 섹션으로 작성:\n" +
+                    "1) 종합 판정 (정상/주의/위험 중 하나 + 한 줄 근거)\n" +
+                    "2) 핵심 지표 요약 (TPS, p95/p99, 에러율, DB 커넥션 피크/한계)\n" +
+                    "3) 병목 진단(근본원인): RPS 정체·지연 급등·DB 커넥션 한계 도달 여부를 근거로 무엇이 병목인지 단정\n" +
+                    "4) SLA 평가 (기준: p95 1초 이내, 에러율 1% 미만 충족 여부)\n" +
+                    "5) 권장 조치 (구체적·우선순위順. 예: 커넥션 풀(HikariCP 등) 도입, max_connections 조정, 쿼리/인덱스 개선)\n\n" +
+                    "[데이터]\n" + context
+
+                writeJSON file: 'groq_loadtest_req.json', json: [
+                    model: 'llama-3.3-70b-versatile',
+                    messages: [[ role: 'user', content: prompt ]]
+                ]
+
+                env.AI_REPORT = 'AI 분석을 가져오지 못했습니다.'
+                try {
+                    withCredentials([string(credentialsId: 'GROQ_API_KEY', variable: 'GROQ_API_KEY')]) {
+                        sh '''
+                            curl -sf --max-time 40 --connect-timeout 10 \
+                                 -X POST "https://api.groq.com/openai/v1/chat/completions" \
+                                 -H "Authorization: Bearer $GROQ_API_KEY" \
+                                 -H "Content-Type: application/json" \
+                                 -d @groq_loadtest_req.json -o groq_loadtest_resp.json
+                        '''
+                        def resp = readJSON file: 'groq_loadtest_resp.json'
+                        if (resp.choices && resp.choices[0] && resp.choices[0].message) {
+                            env.AI_REPORT = resp.choices[0].message.content
+                        } else {
+                            env.AI_REPORT = "AI 분석 실패(응답 구조 오류): " + sh(script: 'cat groq_loadtest_resp.json', returnStdout: true).trim()
+                        }
+                    }
+                } catch (e) {
+                    env.AI_REPORT = "Groq 호출 오류: ${e.message}"
+                }
+
+                def esc = { s -> (s ?: '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;') }
+                emailext(
+                    subject: "📊 [부하테스트] ${params.TEST_TYPE} #${env.BUILD_NUMBER} — ${currentBuild.currentResult}",
+                    to: params.EMAIL_TO,
+                    mimeType: 'text/html',
+                    body: """<div style="font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;">
+                                <h2>📊 BoonPick 부하테스트 리포트</h2>
+                                <pre style="white-space:pre-wrap;">${esc(meta)}</pre>
+                                <h3>🤖 AI 분석 (Groq)</h3>
+                                <pre style="background:#f4f4f4;padding:14px;border-radius:6px;white-space:pre-wrap;font-size:14px;">${esc(env.AI_REPORT)}</pre>
+                                <h3>📈 원시 결과 (클라이언트 + 서버)</h3>
+                                <pre style="background:#fafafa;padding:14px;border-radius:6px;white-space:pre-wrap;font-size:13px;">${esc(summary)}\n${esc(snapshot)}</pre>
+                                <p>상세 그래프/아티팩트: <a href="${env.BUILD_URL}">${env.BUILD_URL}</a></p>
+                             </div>"""
+                )
             }
         }
     }
