@@ -206,6 +206,9 @@ pipeline {
                                     ${TARGET_USER}@${TARGET_SERVER}:${remoteDir}/docker-compose.yml
                                 scp -o StrictHostKeyChecking=no prometheus/prometheus.yml \\
                                     ${TARGET_USER}@${TARGET_SERVER}:${remoteDir}/prometheus/prometheus.yml
+                                # Grafana 자동 프로비저닝(데이터소스+부하테스트 대시보드) 전송
+                                scp -r -o StrictHostKeyChecking=no grafana \\
+                                    ${TARGET_USER}@${TARGET_SERVER}:${remoteDir}/
 
                                 # 2) 컨테이너 기동(또는 설정 갱신). prometheus는 재시작해 새 설정 반영.
                                 # 운영 서버에 docker compose v2(plugin) 또는 v1(docker-compose) 둘 중

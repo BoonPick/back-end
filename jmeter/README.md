@@ -60,7 +60,7 @@ docker compose up -d prometheus grafana node-exporter
 ```
 
 - Prometheus: http://localhost:9090 (Status → Targets 에서 `fastapi` UP 확인)
-- Grafana:    http://localhost:3001 (admin / admin)
+- Grafana:    http://localhost:3001
 
 JMeter 리포트(클라이언트 관점)와 Grafana(서버 관점)를 **교차 검증**한다.
 

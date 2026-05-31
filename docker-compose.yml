@@ -25,6 +25,9 @@ services:
       - GF_PLUGINS_PREINSTALL_AUTO_UPDATE=false
     volumes:
       - grafana-data:/var/lib/grafana
+      # 자동 프로비저닝: Prometheus 데이터소스 + 부하테스트 대시보드를 부팅 시 등록
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
     depends_on:
       - prometheus
 
