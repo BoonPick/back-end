@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: boonpick-frontend
+  namespace: boonpick
 spec:
   replicas: 1
   selector:

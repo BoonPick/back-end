@@ -159,6 +159,7 @@ pipeline {
 
                                     # Secret 생성/갱신 (--dry-run=client로 덮어쓰기 안전 처리)
                                     kubectl create secret generic boonpick-secret \\
+                                        --namespace=boonpick \\
                                         --from-literal=DB_HOST='${env.DB_HOST}' \\
                                         --from-literal=DB_USER='${env.DB_USER}' \\
                                         --from-literal=DB_PASSWORD='${env.DB_PASSWORD}' \\

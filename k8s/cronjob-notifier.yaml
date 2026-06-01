@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: notifier-batch
+  namespace: boonpick
 spec:
   schedule: "0 3 * * *"   # scheduler.py의 hour=3, minute=0과 동일
   timeZone: "Asia/Seoul"
