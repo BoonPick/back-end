@@ -155,6 +155,8 @@ pipeline {
                                 scp -r -o StrictHostKeyChecking=no k8s/ ${TARGET_USER}@${TARGET_SERVER}:~/boonpick/
 
                                 ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_SERVER} "
+                                    kubectl create namespace boonpick --dry-run=client -o yaml | kubectl apply -f -
+
                                     # Secret 생성/갱신 (--dry-run=client로 덮어쓰기 안전 처리)
                                     kubectl create secret generic boonpick-secret \\
                                         --from-literal=DB_HOST='${env.DB_HOST}' \\
