@@ -174,8 +174,8 @@ pipeline {
                                     # 빌드별 이미지 태그 고정 (RollingUpdate 트리거)
                                     kubectl set image deployment/boonpick-backend \\
                                         boonpick-backend=${IMAGE_NAME}:${env.IMAGE_TAG}
-                                    kubectl set image deployment/boonpick-frontend \\
-                                        boonpick-frontend=${DOCKER_HUB_USER}/boonpick-frontend:latest
+                                    # kubectl set image deployment/boonpick-frontend \\
+                                    #    boonpick-frontend=${DOCKER_HUB_USER}/boonpick-frontend:latest
                                 "
                             """
                         }
@@ -195,7 +195,7 @@ pipeline {
                             sh """
                                 ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_SERVER} "
                                     kubectl rollout status deployment/boonpick-backend --timeout=120s
-                                    kubectl rollout status deployment/boonpick-frontend --timeout=120s
+                                    # kubectl rollout status deployment/boonpick-frontend --timeout=120s
                                 "
                             """
                         }
