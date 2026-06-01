@@ -15,7 +15,7 @@ pipeline {
         DOCKER_HUB_CREDS = "docker-hub-credentials"
 
         TARGET_SERVER = "163.239.77.78"
-        TARGET_USER   = "sogang018@SGVDI.local"
+        TARGET_USER   = "sogang018"
         SSH_CRED_ID   = "team"
 
         DB_HOST       = credentials('BOONPICK_DB_HOST')
