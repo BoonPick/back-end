@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: boonpick-frontend-svc
+spec:
+  type: NodePort  # 외부에서 팀서버IP:30000으로 직접 접근
+  selector:
+    app: boonpick-frontend
+  ports:
+  - port: 3000
+    targetPort: 3000
+    nodePort: 30000

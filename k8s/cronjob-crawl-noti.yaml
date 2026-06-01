@@ -1,0 +1,32 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: crawl-noti
+spec:
+  schedule: "15 2 * * *"   # scheduler.py의 hour=2, minute=15와 동일
+  timeZone: "Asia/Seoul"
+  concurrencyPolicy: Forbid  # 이전 Job이 끝나지 않으면 새 Job 건너뜀
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: crawl-noti
+            image: jaeyoungkimdockerhub/boonpick-backend:latest
+            imagePullPolicy: Always
+            command: ["python", "crawling_noti.py"]
+            envFrom:
+            - secretRef:
+                name: boonpick-secret
+            - configMapRef:
+                name: boonpick-config
+            resources:
+              requests:
+                memory: "256Mi"
+                cpu: "200m"
+              limits:
+                memory: "512Mi"
+                cpu: "500m"
+          restartPolicy: OnFailure

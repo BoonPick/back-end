@@ -1,0 +1,32 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: crawl-jobs
+spec:
+  schedule: "30 2 * * *"   # scheduler.py의 hour=2, minute=30과 동일
+  timeZone: "Asia/Seoul"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: crawl-jobs
+            image: jaeyoungkimdockerhub/boonpick-backend:latest
+            imagePullPolicy: Always
+            command: ["python", "crawling_job.py"]
+            envFrom:
+            - secretRef:
+                name: boonpick-secret
+            - configMapRef:
+                name: boonpick-config
+            resources:
+              requests:
+                memory: "1Gi"   # Playwright + Chromium 메모리
+                cpu: "500m"
+              limits:
+                memory: "3Gi"
+                cpu: "1500m"
+          restartPolicy: OnFailure

@@ -1,0 +1,41 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: notifier-batch
+spec:
+  schedule: "0 3 * * *"   # scheduler.py의 hour=3, minute=0과 동일
+  timeZone: "Asia/Seoul"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: notifier
+            image: jaeyoungkimdockerhub/boonpick-backend:latest
+            imagePullPolicy: Always
+            command:
+              - python
+              - -c
+              - "from notifier import notify_new_items_for_all_users; notify_new_items_for_all_users()"
+            envFrom:
+            - secretRef:
+                name: boonpick-secret
+            - configMapRef:
+                name: boonpick-config
+            env:
+            - name: MAIL_FROM_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: boonpick-secret
+                  key: SMTP_USER
+            resources:
+              requests:
+                memory: "256Mi"
+                cpu: "200m"
+              limits:
+                memory: "512Mi"
+                cpu: "500m"
+          restartPolicy: OnFailure

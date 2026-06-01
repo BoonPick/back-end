@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: boonpick-backend-svc
+spec:
+  type: ClusterIP  # 프론트엔드 → 백엔드 내부 통신만 허용, 외부 직접 노출 안 함
+  selector:
+    app: boonpick-backend
+  ports:
+  - port: 8000
+    targetPort: 8000

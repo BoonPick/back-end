@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: boonpick-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: boonpick-backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1        # 배포 중 최대 1개 추가 Pod 허용
+      maxUnavailable: 0  # 배포 중 기존 Pod 유지 (무중단)
+  template:
+    metadata:
+      labels:
+        app: boonpick-backend
+    spec:
+      containers:
+      - name: boonpick-backend
+        image: jaeyoungkimdockerhub/boonpick-backend:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+        envFrom:
+        - secretRef:
+            name: boonpick-secret
+        - configMapRef:
+            name: boonpick-config
+        env:
+        - name: MAIL_FROM_EMAIL
+          valueFrom:
+            secretKeyRef:
+              name: boonpick-secret
+              key: SMTP_USER
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1"
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          failureThreshold: 3

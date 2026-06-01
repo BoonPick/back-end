@@ -144,39 +144,56 @@ pipeline {
             }
         }
 
-        stage('Deploy to Remote Server') {
+        stage('Deploy to k3s') {
             steps {
                 script {
-                    def safeBranch    = env.DEPLOY_BRANCH.replaceAll('/', '-')
-                    def containerName = env.DEPLOY_BRANCH == 'main'
-                        ? 'boonpick-backend-container'
-                        : "boonpick-backend-${safeBranch}-container"
-                    def hostPort = env.DEPLOY_BRANCH == 'main' ? '8000' : '8001'
+                    try {
+                        sshagent(["${SSH_CRED_ID}"]) {
+                            sh """
+                                # k8s 매니페스트 전송
+                                ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_SERVER} "mkdir -p ~/boonpick/k8s"
+                                scp -r -o StrictHostKeyChecking=no k8s/ ${TARGET_USER}@${TARGET_SERVER}:~/boonpick/
 
-                    echo "컨테이너: ${containerName}  포트: ${hostPort}"
+                                ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_SERVER} "
+                                    # Secret 생성/갱신 (--dry-run=client로 덮어쓰기 안전 처리)
+                                    kubectl create secret generic boonpick-secret \\
+                                        --from-literal=DB_HOST='${env.DB_HOST}' \\
+                                        --from-literal=DB_USER='${env.DB_USER}' \\
+                                        --from-literal=DB_PASSWORD='${env.DB_PASSWORD}' \\
+                                        --from-literal=SAINT_ID='${env.SAINT_ID}' \\
+                                        --from-literal=SAINT_PW='${env.SAINT_PW}' \\
+                                        --from-literal=SMTP_USER='${env.SMTP_USER}' \\
+                                        --from-literal=SMTP_PASSWORD='${env.SMTP_PASSWORD}' \\
+                                        --dry-run=client -o yaml | kubectl apply -f -
 
+                                    # ConfigMap, Service, CronJob 적용
+                                    kubectl apply -f ~/boonpick/k8s/
+
+                                    # 빌드별 이미지 태그 고정 (RollingUpdate 트리거)
+                                    kubectl set image deployment/boonpick-backend \\
+                                        boonpick-backend=${IMAGE_NAME}:${env.IMAGE_TAG}
+                                    kubectl set image deployment/boonpick-frontend \\
+                                        boonpick-frontend=${DOCKER_HUB_USER}/boonpick-frontend:${env.IMAGE_TAG}
+                                "
+                            """
+                        }
+                    } catch (Exception e) {
+                        echo "STAGE_ERROR: ${e.getMessage()}"
+                        throw e
+                    }
+                }
+            }
+        }
+
+        stage('Rollout Status') {
+            steps {
+                script {
                     try {
                         sshagent(["${SSH_CRED_ID}"]) {
                             sh """
                                 ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_SERVER} "
-                                    docker pull ${IMAGE_NAME}:${env.IMAGE_TAG} && \\
-                                    docker stop ${containerName} 2>/dev/null || true && \\
-                                    docker rm   ${containerName} 2>/dev/null || true && \\
-                                    docker run -d --name ${containerName} -p ${hostPort}:8000 \\
-                                        -e WORKERS=4 \\
-                                        -e DB_HOST='${env.DB_HOST}' \\
-                                        -e DB_USER='${env.DB_USER}' \\
-                                        -e DB_PASSWORD='${env.DB_PASSWORD}' \\
-                                        -e SAINT_ID='${env.SAINT_ID}' \\
-                                        -e SAINT_PW='${env.SAINT_PW}' \\
-                                        -e SMTP_HOST=smtp.gmail.com \\
-                                        -e SMTP_PORT=587 \\
-                                        -e SMTP_USER='${env.SMTP_USER}' \\
-                                        -e SMTP_PASSWORD='${env.SMTP_PASSWORD}' \\
-                                        -e MAIL_FROM_NAME=BoonPick \\
-                                        -e MAIL_FROM_EMAIL='${env.SMTP_USER}' \\
-                                        ${IMAGE_NAME}:${env.IMAGE_TAG} && \\
-                                    docker image prune -f
+                                    kubectl rollout status deployment/boonpick-backend --timeout=120s
+                                    kubectl rollout status deployment/boonpick-frontend --timeout=120s
                                 "
                             """
                         }
