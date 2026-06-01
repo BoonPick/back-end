@@ -175,7 +175,7 @@ pipeline {
                                     kubectl set image deployment/boonpick-backend \\
                                         boonpick-backend=${IMAGE_NAME}:${env.IMAGE_TAG}
                                     kubectl set image deployment/boonpick-frontend \\
-                                        boonpick-frontend=${DOCKER_HUB_USER}/boonpick-frontend:${env.IMAGE_TAG}
+                                        boonpick-frontend=${DOCKER_HUB_USER}/boonpick-frontend:latest
                                 "
                             """
                         }
