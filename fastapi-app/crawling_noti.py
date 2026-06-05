@@ -37,7 +37,15 @@ def get_db_connection():
 def notice_exists(cursor, notice_url: str) -> bool:
     """URL로 이미 DB에 저장된 공지인지 확인"""
     cursor.execute("SELECT id FROM contents WHERE url = %s", (notice_url,))
-    return cursor.fetchone() is not None
+    result = cursor.fetchone()
+
+    # mysql.connector의 Unread result 방지를 위해 남은 결과 소비
+    try:
+        cursor.fetchall()
+    except mysql.connector.errors.InterfaceError:
+        pass
+
+    return result is not None
 
 
 def extract_category_from_title(title: str) -> tuple[str, str]:
@@ -116,7 +124,7 @@ def crawl_notices(page_count: int = 1):
     이미 존재하는 pkId는 건너뜀.
     """
     conn = get_db_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(buffered=True)
     saved_count = 0
 
     try:
