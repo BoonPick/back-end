@@ -5,7 +5,7 @@ services:
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
     ports:
-      - "9090:9090"
+      - "100.98.3.27:9090:9090"
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
     extra_hosts:
@@ -17,7 +17,7 @@ services:
     image: grafana/grafana:latest
     container_name: boonpick-grafana
     ports:
-      - "3001:3000"   # 호스트 3000번은 다른 곳에서 쓸 수 있어 3001로 매핑. http://localhost:3001 로 접속.
+      - "100.98.3.27:3001:3000"   # 호스트 3000번은 다른 곳에서 쓸 수 있어 3001로 매핑. http://localhost:3001 로 접속.
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin   # 최초 로그인 후 변경 권장
       - GF_ANALYTICS_CHECK_FOR_UPDATES=false
@@ -35,7 +35,7 @@ services:
     image: prom/node-exporter:latest
     container_name: boonpick-node-exporter
     ports:
-      - "9100:9100"
+      - "100.98.3.27:9100:9100"
     # 맥(Docker Desktop)에서는 호스트 경로 마운트 효과가 제한적이지만, 리눅스 환경 호환을 위해 표준 옵션 유지.
     command:
       - '--path.procfs=/host/proc'
@@ -60,7 +60,7 @@ services:
     environment:
       - MYSQLD_EXPORTER_PASSWORD=${DB_EXPORTER_PASSWORD:-exporter}
     ports:
-      - "9104:9104"
+      - "100.98.3.27:9104:9104"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

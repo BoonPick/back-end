@@ -14,7 +14,7 @@ pipeline {
         IMAGE_NAME       = "${DOCKER_HUB_USER}/boonpick-backend"
         DOCKER_HUB_CREDS = "docker-hub-credentials"
 
-        TARGET_SERVER = "163.239.77.78"
+        TARGET_SERVER = "100.98.3.27"
         TARGET_USER   = "sogang018@SGVDI.local"
         SSH_CRED_ID   = "team"
 
