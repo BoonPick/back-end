@@ -631,6 +631,11 @@ class TestGetRecommendation:
             title="AI 채용",
             category="job",
             raw_content="내용 내용",
+            employment=None,
+            work_type=None,
+            duty=None,
+            deadline=None,
+            is_always_open=None,
         )
 
     def test_closes_connection(self):
