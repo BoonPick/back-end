@@ -161,11 +161,24 @@ class BoardItem(BaseModel):
     isAlwaysOpen: Optional[bool] = None
 
 
+class ScoreBreakdownItem(BaseModel):
+    label: str
+    score: int
+    comment: str = ""
+
+
 class Recommendation(BaseModel):
     itemId: str
     matchScore: int
     matchReason: str
-    preparationTips: List[str]
+    preparationTips: List[str] = []
+    # ── 확장 필드 (LLM 추천 상세화) — 구버전 응답과의 호환을 위해 모두 기본값 포함 ──
+    matchLevel: str = ""
+    scoreBreakdown: List[ScoreBreakdownItem] = []
+    matchedKeywords: List[str] = []
+    missingKeywords: List[str] = []
+    recommendedActions: List[str] = []
+    deadlineNote: Optional[str] = None
 
 
 class DedupGroupSample(BaseModel):
@@ -605,7 +618,18 @@ def get_recommendation(item_id: int, keywords: str = Query("")):
     conn = get_db()
     try:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM contents WHERE id = %s", (item_id,))
+        # 채용 상세(job_postings)를 함께 조회해 마감/고용형태 등을 추천 근거로 넘긴다.
+        cursor.execute(
+            "SELECT c.*, "
+            "jp.employment     AS employment, "
+            "jp.work_type      AS work_type, "
+            "jp.duty           AS duty, "
+            "jp.deadline       AS deadline, "
+            "jp.is_always_open AS is_always_open "
+            "FROM contents c LEFT JOIN job_postings jp ON jp.content_id = c.id "
+            "WHERE c.id = %s",
+            (item_id,),
+        )
         content = cursor.fetchone()
         cursor.close()
         if not content:
@@ -620,11 +644,20 @@ def get_recommendation(item_id: int, keywords: str = Query("")):
                 preparationTips=["관심 키워드를 먼저 설정해주세요."],
             )
 
+        deadline = content.get("deadline")
+        deadline_str = deadline.strftime("%Y-%m-%d") if hasattr(deadline, "strftime") else None
+        is_always_open = content.get("is_always_open")
+
         result = get_llm_recommendation(
             keywords=keyword_list,
             title=content.get("title", ""),
             category=content.get("category", ""),
             raw_content=content.get("raw_content", ""),
+            employment=content.get("employment"),
+            work_type=content.get("work_type"),
+            duty=content.get("duty"),
+            deadline=deadline_str,
+            is_always_open=bool(is_always_open) if is_always_open is not None else None,
         )
 
         return Recommendation(itemId=str(item_id), **result)

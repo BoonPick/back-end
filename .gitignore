@@ -8,6 +8,13 @@ __pycache__/
 *.pyo
 *.egg-info/
 
+# Virtual environment
+.venv/
+venv/
+
+# 로컬 전용 DB 시드 (개인 PC 데이터)
+fastapi-app/migrations/seed_local.sql
+
 # Dependencies
 node_modules/
 yarn.lock
